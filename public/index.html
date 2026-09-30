@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Gentle Office</title>
+    <link rel="stylesheet" href="/style.css?token=__TOKEN__">
+  </head>
+  <body>
+    <header>
+      <h1>Gentle Office</h1>
+      <span id="connection">offline</span>
+      <button id="compact" aria-pressed="false">Office only</button>
+      <button id="pip">Always on top</button>
+    </header>
+    <main id="office" class="empty">
+      <p id="empty">No sessions yet: run /office in Pi</p>
+      <div id="offices"></div>
+      <div id="side">
+        <aside class="recognition" aria-labelledby="recognition-title">
+          <h2 id="recognition-title">Employees of the month</h2>
+          <p class="period">All-time contributors<br>Total GitHub commits</p>
+          <ol>
+          <li>
+            <span class="initials" aria-hidden="true">AT</span>
+            <strong>Alan-TheGentleman</strong>
+            <span class="commit-count">2810 commits</span>
+          </li>
+          <li>
+            <span class="initials" aria-hidden="true">D</span>
+            <strong>dnlrsls</strong>
+            <span class="commit-count">152 commits</span>
+          </li>
+          <li>
+            <span class="initials" aria-hidden="true">D2</span>
+            <strong>decode2</strong>
+            <span class="commit-count">73 commits</span>
+          </li>
+          <li>
+            <span class="initials" aria-hidden="true">M</span>
+            <strong>Matere413</strong>
+            <span class="commit-count">62 commits</span>
+          </li>
+          <li>
+            <span class="initials" aria-hidden="true">A</span>
+            <strong>ardelperal</strong>
+            <span class="commit-count">51 commits</span>
+          </li>
+          </ol>
+          <p class="source">GitHub · Gentleman-Programming/gentle-ai
+            <time datetime="2026-09-16">2026-09-16</time>
+          </p>
+          <p class="note">Snapshot: commit counts do not reflect every contribution.</p>
+        </aside>
+        <a class="built-with" href="https://github.com/Gentleman-Programming/gentle-ai" target="_blank" rel="noopener noreferrer">
+          <img src="https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/docs/assets/brand/built-with-gentle-ai.png" alt="Built with Gentle-AI">
+        </a>
+      </div>
+    </main>
+    <script type="module" src="/app.mjs?token=__TOKEN__"></script>
+  </body>
+</html>

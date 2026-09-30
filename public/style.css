@@ -1,0 +1,217 @@
+:root {
+  color-scheme: dark;
+  font: 14px system-ui;
+  background: #1a1218;
+  color: #f5eae2;
+}
+body {
+  margin: 0;
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  flex-wrap: wrap;
+}
+h1 {
+  font-size: 18px;
+  margin: 0;
+}
+button {
+  margin-left: auto;
+  background: #514353;
+  border: 1px solid #b894ac;
+  border-radius: 6px;
+  padding: 7px;
+  color: inherit;
+}
+button:disabled {
+  opacity: .5;
+}
+#office {
+  display: grid;
+  gap: 12px;
+  padding: 0 12px 12px;
+}
+.viewport {
+  overflow: auto;
+  text-align: center;
+  min-width: 0;
+}
+.scene {
+  position: relative;
+  margin: auto;
+  width: 640px;
+  height: 432px;
+}
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+.bubbles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.bubble {
+  position: absolute;
+  box-sizing: border-box;
+  white-space: pre-line;
+  font: 600 12px/14px system-ui;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff4d6;
+  color: #392b35;
+  padding: 2px 4px;
+  border: 2px solid #392b35;
+  /* The painted extent is the measured border box (no shadow over a wall). */
+  box-shadow: none;
+}
+.bubble.idle {
+  opacity: .65;
+}
+/* At 1x the office is small; keep bubbles compact so they stay on open floor. */
+.scene.compact .bubble {
+  font-size: calc(10px * var(--bubble-scale, 1));
+  line-height: calc(10px * var(--bubble-scale, 1));
+  padding: 0;
+  border-width: 1px;
+}
+.scene.compact .bubble.narrow {
+  font-size: calc(9px * var(--bubble-scale, 1));
+}
+.built-with {
+  display: block;
+  justify-self: center;
+  width: min(100%, 260px);
+}
+.built-with img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+#side {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-width: 0;
+}
+/* Contributor board from the office prototype (static snapshot, same palette). */
+.recognition {
+  min-width: 0;
+  padding: 10px;
+  background: #d1b6ab;
+  color: #49303e;
+  border: 4px solid #aa958e;
+  border-top-color: #f5eae2;
+  box-shadow: inset 0 0 0 2px #f5eae2, 0 4px 0 #49303e;
+}
+.recognition h2 {
+  margin: 0;
+  font: bold 18px/1.2 ui-monospace, monospace;
+}
+.recognition p {
+  margin: 6px 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.recognition .period {
+  border-bottom: 2px solid #aa958e;
+  padding-bottom: 6px;
+}
+.recognition ol {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+.recognition li {
+  margin: 4px 0;
+  padding: 2px 0;
+}
+.recognition li::marker {
+  font: bold 14px ui-monospace, monospace;
+}
+.initials {
+  float: left;
+  width: 28px;
+  padding: 5px 0;
+  margin-right: 8px;
+  text-align: center;
+  font: bold 12px ui-monospace, monospace;
+  background: #765466;
+  color: #f5eae2;
+  box-shadow: 2px 2px 0 #1a1218;
+}
+.recognition strong {
+  display: block;
+  margin-left: 36px;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.commit-count {
+  display: block;
+  margin-left: 36px;
+  font-size: 13px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.recognition .source {
+  border-top: 2px solid #aa958e;
+  padding-top: 6px;
+  overflow-wrap: anywhere;
+}
+.recognition time {
+  display: block;
+}
+.recognition p:last-child {
+  margin-bottom: 0;
+}
+#connection {
+  font-size: 12px;
+  color: #9bd4cd;
+}
+.pip-status {
+  margin: 8px 12px;
+}
+#office.room-first {
+  grid-template-columns: minmax(0, 1fr);
+}
+#office.room-first #side {
+  display: none;
+}
+#compact[aria-pressed="true"] {
+  background: #765466;
+}
+#pip { margin-left: 0; }
+@media (min-width: 960px) {
+  #office {
+    grid-template-columns: minmax(640px, 1fr) minmax(260px, 300px);
+    align-items: start;
+  }
+  #side {
+    gap: 8px;
+  }
+  .recognition li {
+    margin: 2px 0;
+  }
+}
+#offices { display: grid; gap: 12px; min-width: 0; }
+.office-cell { min-width: 0; }
+.office-title { display: none; font-size: 13px; margin: 0 0 8px; overflow-wrap: anywhere; }
+#office.multiple, #office.empty { grid-template-columns: minmax(0, 1fr); }
+#office.multiple #side, #office.empty #side { display: none; }
+#office.multiple .office-title { display: block; }
+#empty { text-align: center; }
+#empty[hidden] { display: none; }
+/* Narrow windows stack everything; lay contributors out in a compact row. */
+@media (max-width: 959px) {
+  .recognition ol {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 4px 12px;
+  }
+}

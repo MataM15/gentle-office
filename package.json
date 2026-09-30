@@ -1,0 +1,30 @@
+{
+  "name": "gentle-office",
+  "version": "0.1.0",
+  "description": "A live pixel-art office for your Pi coding-agent sessions, served on loopback with zero dependencies.",
+  "type": "module",
+  "license": "MIT",
+  "author": "MataM15",
+  "keywords": ["pi", "coding-agent", "pixel-art", "sse", "gentle-ai"],
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "gentle-office": "src/server.mjs"
+  },
+  "files": [
+    "src/",
+    "public/",
+    "extensions/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "start": "node src/server.mjs",
+    "hub": "node src/server.mjs --hub",
+    "test": "node --test 'test/*.test.mjs'",
+    "render:frames": "node scripts/render-frames.mjs",
+    "capture:layout": "node scripts/capture-layout.mjs"
+  }
+}

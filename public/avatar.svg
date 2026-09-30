@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges" role="img" aria-labelledby="title description">
+  <title id="title">Orchestrator — static pixel portrait</title>
+  <desc id="description">Original hand-drawn bust on a 64 by 64 grid: swept dark hair, strong angled eyebrows, blue teal eyes, a bold dark handlebar moustache, short jaw stubble, warm skin and a light open-collar shirt.</desc>
+  <!-- Quiet rose backdrop; all drawing coordinates stay on the integer grid. -->
+  <path fill="#392332" d="M0 0h64v64H0z"/>
+  <path fill="#623749" d="M12 8h40v4h4v40h-4v4H12v-4H8V12h4z"/>
+  <path fill="#96566b" d="M16 12h32v4h4v32h-4v4H16v-4h-4V16h4z"/>
+  <!-- Shoulders, neck and the light shirt. -->
+  <path fill="#b9b5b9" d="M22 48h20v3h7v3h6v3h4v7H4v-6h4v-4h7v-3h7z"/>
+  <path fill="#e9e2db" d="M20 51h5v3h14v-3h5v3h6v3h5v7H8v-6h7v-4h5z"/>
+  <path fill="#ad6e54" d="M25 44h15v10h-3v5h-8v-4h-4z"/>
+  <path fill="#d4946d" d="M28 47h10v7h-3v4h-4v-4h-3z"/>
+  <path fill="#faf0e3" d="M22 50h3v4h4v5h-5v-3h-4v-4h2zM40 50h3v3h3v3h-6v4h-4v-5h4z"/>
+  <path fill="#89838d" d="M29 59h3v5h-3zM37 60h2v4h-2zM13 58h2v6h-2zM50 59h2v5h-2z"/>
+  <!-- Ear silhouettes and long, warm face planes. -->
+  <path fill="#ad6e54" d="M17 26h5v13h-3v-3h-2zM43 26h4v11h-2v3h-3z"/>
+  <path fill="#e4a780" d="M18 28h3v6h-2v-3h-1zM44 28h2v6h-2z"/>
+  <path fill="#ad6e54" d="M23 14h17v3h4v23h-2v6h-4v4H27v-2h-4v-4h-2V23h2z"/>
+  <path fill="#d4946d" d="M24 17h15v3h3v19h-2v6h-4v3h-8v-3h-4v-6h-2V24h2z"/>
+  <path fill="#e4a780" d="M25 18h13v3h3v6h-5v3h-6v-3h-7v-5h2zM24 33h5v7h-4v-3h-1zM36 33h5v5h-2v3h-3z"/>
+  <path fill="#f2bf94" d="M27 20h9v3h-9zM25 33h3v3h-3zM37 33h3v2h-3z"/>
+  <!-- Swept crop: stepped silhouette with a left-falling fringe. -->
+  <path fill="#211c20" d="M17 28V17h2v-5h4V9h5V7h10v1h5v3h2v5h1v8h-3v-6h-4v-2h-5v1h-5v2h-4v3h-3v5h-2v4h-2v-3z"/>
+  <path fill="#34282a" d="M20 18v-5h5v-3h5V9h7v1h5v3h-9v2h-6v2h-4v5h-3zM40 15h3v6h-1v-3h-2z"/>
+  <path fill="#514039" d="M23 14h3v-2h6v-1h5v2h-7v2h-5v3h-2z"/>
+  <path fill="#34282a" d="M18 22h2v10h-1v3h-1zM43 23h1v11h-1z"/>
+  <!-- Low, emphatic brows frame the small bright irises. -->
+  <path fill="#211c20" d="M22 26h5v1h3v3h-3v-1h-5zM34 28h3v-2h5v3h-5v1h-3z"/>
+  <path fill="#ad6e54" d="M23 30h7v3h-7zM34 30h8v3h-8z"/>
+  <path fill="#faf0e3" d="M23 30h6v2h-6zM35 30h6v2h-6z"/>
+  <path fill="#57959c" d="M25 30h3v3h-3zM36 30h3v3h-3z"/>
+  <path fill="#211c20" d="M26 30h1v2h-1zM37 30h1v2h-1z"/>
+  <path fill="#faf0e3" d="M25 30h1v1h-1zM36 30h1v1h-1z"/>
+  <!-- Straight nose, upswept handlebar moustache and a separate short chin beard. -->
+  <path fill="#ad6e54" d="M31 29h2v6h2v3h-5v-2h1z"/>
+  <path fill="#f2bf94" d="M31 31h1v4h-1zM30 35h3v2h-3z"/>
+  <path fill="#754c40" d="M29 37h2v1h-2zM34 37h2v1h-2z"/>
+  <path fill="#211c20" d="M21 37h2v2h2v-1h5v1h1v1h2v-1h1v-1h5v1h2v-2h2v3h-1v2h-2v1h-2v1h-3v-1h-1v-1h-1v-1h-2v1h-1v1h-1v1h-3v-1h-2v-1h-2v-2h-1z"/>
+  <path fill="#34282a" d="M25 40h2v-1h3v1h-2v1h-3zM34 39h3v1h2v1h-3v-1h-2z"/>
+  <path fill="#754c40" d="M29 43h7v1h-7z"/>
+  <path fill="#e4a780" d="M30 44h5v1h-5z"/>
+  <path fill="#514039" d="M22 37h1v5h2v3h3v2h9v-2h3v-3h2v-5h1v7h-2v3h-4v3H27v-2h-3v-3h-2z"/>
+  <path fill="#34282a" d="M29 46h6v2h-6z"/>
+  <path fill="#754c40" d="M24 40h1v1h-1zM25 44h1v1h-1zM27 45h1v1h-1zM38 44h1v1h-1zM40 40h1v1h-1zM28 48h1v1h-1zM36 48h1v1h-1z"/>
+</svg>

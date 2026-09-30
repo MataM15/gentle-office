@@ -1,0 +1,18 @@
+# Dependencies (the project has none, but keep installs out of Git)
+node_modules/
+
+# Synthetic test data, evidence screenshots and throwaway browser profiles
+.test-output/
+coverage/
+
+# Logs
+*.log
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*~
+.idea/
+.vscode/
