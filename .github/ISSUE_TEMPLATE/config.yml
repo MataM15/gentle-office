@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Usage questions and early ideas
+    url: https://github.com/MataM15/gentle-office/discussions
+    about: Use Discussions for help and open-ended ideas; use the issue forms for bugs and scoped feature requests.
   - name: Report a security vulnerability
     url: https://github.com/MataM15/gentle-office/security/advisories/new
     about: Please report security issues privately, not in public issues.

@@ -8,7 +8,25 @@ By participating you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 - For bugs, open an issue with the bug report template. Include your OS, Node.js version and browser.
 - For new features or larger changes, open a feature request first so we can agree on the approach before you write code.
+- For usage questions and early ideas, use [Discussions](https://github.com/MataM15/gentle-office/discussions).
 - Security problems must **not** be reported in public issues. Follow [SECURITY.md](SECURITY.md) instead.
+- Small documentation fixes can be submitted directly as a PR; an issue is not mandatory for every typo.
+
+## Issue triage and labels
+
+You do not need to choose labels or assign a maintainer. The bug and feature forms request `bug` and `enhancement` automatically; the maintainer confirms the classification and applies other labels during triage.
+
+| Label | Meaning |
+| --- | --- |
+| `bug` | Reported incorrect behavior; the label alone does not mean it is reproduced. |
+| `enhancement` | Proposed feature or improvement; not an implementation commitment. |
+| `documentation` | Documentation changes or missing instructions. |
+| `help wanted` | A scoped contribution is welcome. |
+| `good first issue` | A maintainer-scoped task suitable for a first contribution. |
+
+Search existing issues before opening one. Include reproduction details for bugs and the problem you want to solve for features. The maintainer may ask for more information, link duplicates, or close out-of-scope proposals with an explanation. Labels indicate category or suitability, not priority or a release promise.
+
+This is a volunteer-maintained project: triage and PR reviews are best-effort, with no guaranteed response time. Do not share real session transcripts, secrets or token-bearing office URLs.
 
 ## Development setup
 
@@ -20,6 +38,8 @@ cd gentle-office
 node --test 'test/*.test.mjs'
 for f in src/*.mjs public/*.mjs; do node --check "$f"; done
 ```
+
+The shell syntax-check loop above is for macOS/Linux/WSL. On native Windows, run `node --check <file>` for each `.mjs` file in `src/` and `public/`.
 
 Run the server against a project with `node src/server.mjs --cwd /path/to/project`, or start an empty hub with `node src/server.mjs --hub`.
 
@@ -59,11 +79,14 @@ Shared synthetic fixtures live in `test/helpers/fixtures.mjs`.
 1. Make sure `node --test 'test/*.test.mjs'` and `node --check` pass locally. CI runs both.
 2. Fill in the pull request template, including how you tested the change.
 3. For visual changes, attach a screenshot or short recording taken from a synthetic session.
+4. Link the related issue when one exists and explain the intended outcome. For larger features, agree on scope in an issue first. Open a draft PR when the work is not ready for review.
+
+The maintainer reviews scope, correctness, privacy and tests before approving and merging. CI must pass; green CI alone is not approval. Contributors do not need to label or assign their PRs. Respond to review feedback in the same PR and keep unrelated work separate. Published tags are never rewritten.
 
 ## Releases
 
-Maintainers cut releases following [Semantic Versioning](https://semver.org/):
+Follow the [maintainer release checklist](docs/releases.md) for versioning, release checks, draft GitHub Releases and explicit publication approval.
 
-1. Move the `[Unreleased]` entries in `CHANGELOG.md` under a new version heading with the release date.
-2. Bump `version` in `package.json`.
-3. Commit with `chore(release): vX.Y.Z`, tag `vX.Y.Z` and publish a GitHub release with the changelog notes.
+Keep `package.json`, `CHANGELOG.md` and the `vX.Y.Z` tag aligned. During `0.x`, patches contain compatible fixes; minor versions may introduce breaking changes and must document migration steps. Never rewrite a published tag.
+
+The first release supports Pi only. OpenCode and registry distribution are follow-up work, not currently supported installation paths.

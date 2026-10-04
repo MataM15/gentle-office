@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Installation, update, rollback, uninstall and troubleshooting guidance for the Pi integration.
+- Synthetic demo video and storyboard with the approved orchestrator portrait.
+- Maintainer release checklist and tag-triggered draft GitHub Release workflow with version and changelog validation.
+- Issue triage labels, contributor/maintainer PR responsibilities and a Discussions route for usage questions.
+
+### Changed
+
+- Package metadata now links to the proposed GitHub repository and includes documentation assets.
+- Public-preview scope is explicitly Pi-only; OpenCode remains planned follow-up work, with first-tagged-release installation checks still pending.
+
 ## [0.1.0] - 2026-09-30
 
 ### Added

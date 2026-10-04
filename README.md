@@ -8,7 +8,17 @@ A live pixel-art office for your Pi coding-agent sessions: watch the orchestrato
 
 > **Community project.** Gentle Office is an independent, community-made tool. It is **not** an official Gentleman Programming product and is not affiliated with or endorsed by Gentleman Programming.
 
-> Screenshots will live in [`docs/assets/`](docs/assets/). None are published yet.
+> **Early-stage community preview.** The repository is open for issues and PRs; no stable release is announced yet. Pi is the only supported integration. OpenCode is planned for later.
+>
+> Before the first tagged release: make a published tag the default install path, add dedicated native Windows setup instructions, and complete clean-checkout installation/update testing. WSL with Edge is the primary day-to-day environment; other platforms remain less tested.
+
+## Preview
+
+[![Gentle Office demo storyboard showing the orchestrator and subagents](docs/assets/demo-preview.png)](docs/assets/gentle-office-demo.mp4)
+
+[Watch or download the demo](docs/assets/gentle-office-demo.mp4) · [Full-size storyboard](docs/assets/demo-preview.png)
+
+A two-minute browser recording with synthetic sessions: tool activity, delegation, memory trips, review and hub mode. Click the preview to open the MP4; GitHub may offer a download rather than inline playback. The orchestrator's face in the storyboard is the approved reference. These captures are illustrative, not a promise that every recorded UI detail is unchanged.
 
 ## Features
 
@@ -18,7 +28,7 @@ A live pixel-art office for your Pi coding-agent sessions: watch the orchestrato
 - **Pi extension.** `/office` registers the current session with the hub and opens a window.
 - **Always on top.** A compact Document Picture-in-Picture window keeps the office visible.
 - **Private by design.** Loopback only, random capability token, and a sanitized snapshot that never includes prompts, outputs or file paths.
-- **Zero dependencies.** Plain Node.js 22 and a browser. Nothing to install.
+- **Zero dependencies.** Plain Node.js 22 and a browser. No dependency installation required.
 
 ## Requirements
 
@@ -26,10 +36,36 @@ A live pixel-art office for your Pi coding-agent sessions: watch the orchestrato
 - A Chromium-based browser (Chrome or Edge 116+) for the "Always on top" window. Other browsers show the office without it.
 - The Pi coding agent (`@earendil-works/pi-coding-agent`), with sessions saved under `~/.pi/agent/sessions/`.
 
-## Quick start
+## Install and open from Pi
+
+You need Git, Node.js 22.13+ and an existing Pi installation. Check `git --version` and `node --version` first. Gentle Office does not install or modify Pi.
+
+The commands below are for macOS, Linux and WSL. Native Windows users can follow the standalone instructions below; the extension setup shown here uses POSIX paths and symlinks.
 
 ```sh
 git clone https://github.com/MataM15/gentle-office.git ~/gentle-office
+cd ~/gentle-office
+# Once releases are published, select a tag listed in GitHub Releases:
+# git switch --detach vX.Y.Z
+mkdir -p ~/.pi/agent/extensions
+ln -s ~/gentle-office/extensions/pi/gentle-office.ts ~/.pi/agent/extensions/gentle-office.ts
+```
+
+If the destination extension already exists, inspect it first: do not overwrite it blindly. No `pnpm install` is needed because this project has no dependencies.
+
+Restart Pi, use a session saved to disk, and run:
+
+```text
+/office
+```
+
+The extension starts the shared hub and opens the office. Use `/office` in other Pi sessions to add them to the same page. For updates, see [Update and rollback](#update-and-rollback).
+
+## Standalone quick start
+
+If you prefer not to install the extension, clone the repository as above and run:
+
+```sh
 cd ~/gentle-office
 node src/server.mjs --cwd /path/to/your/project
 ```
@@ -84,7 +120,63 @@ The extension adds the `/office` command to Pi.
 | `/office` | Starts the hub if needed, registers this session and opens a window. Running it again opens another window. |
 | `/office restart` | Hot-reloads the hub after you update the checkout, without stopping Pi or dropping sessions. |
 
-On WSL the extension opens a Microsoft Edge app window. On macOS it uses `open`, and on Linux `xdg-open`.
+On WSL the extension prefers a Microsoft Edge app window when Edge is found, otherwise the Windows opener. On macOS it uses `open`, and on Linux `xdg-open`.
+
+For a custom checkout location, set the variable **before launching Pi**:
+
+```sh
+export GENTLE_OFFICE_DIR="/absolute/path/to/gentle-office"
+```
+
+Link the extension from that same location. If you copy it instead of linking it, replace your copy after extension updates; updating the checkout alone does not update the copy.
+
+## Update and rollback
+
+### Released versions (recommended)
+
+Use tags listed on [GitHub Releases](https://github.com/MataM15/gentle-office/releases); the examples below are placeholders, not claims that a release exists.
+
+```sh
+cd ~/gentle-office
+git status --short       # Stop if nonempty; preserve your local work first.
+git rev-parse HEAD      # Save this commit if you may need to roll back.
+git fetch origin --tags
+git switch --detach vX.Y.Z   # Replace with the published version you want.
+```
+
+Do not use `git reset --hard`, `git clean` or a forced checkout to resolve local changes. Keep your customizations on a separate branch or back them up before switching versions.
+
+After updating, run `/office restart` in Pi. It reloads the hub for all registered sessions without stopping Pi. Existing browser windows reconnect, but need a page reload to pick up new drawing code; the command opens an updated window.
+
+**Extension changes:** restart Pi as well. `/office restart` reloads the server, not Pi's already-loaded extension. Copied extensions must be updated manually. Legacy hubs without hot-reload support require a coordinated restart; the command warns and leaves them untouched.
+
+### Development checkout
+
+To follow development rather than a published release, use the repository's default branch. On a clean branch that tracks its remote, run `git pull --ff-only`, then apply the restart steps above. This is not a stable-release channel. Do not run `git pull` on a detached release tag.
+
+### Return to an earlier version
+
+On a clean checkout, run `git switch --detach vPREVIOUS` using a real earlier tag, or switch to the commit you saved. Repeat the hub and extension restart steps. Check that version's release notes for compatibility restrictions; preserving registrations across every historical protocol is not guaranteed.
+
+### Uninstall
+
+Remove only the extension symlink or copy you installed at `~/.pi/agent/extensions/gentle-office.ts`, then restart the Pi sessions that loaded it. A hub started by the extension exits after its last registered session leaves. Stop a manually launched server with `Ctrl+C`.
+
+Once no process uses it, you can remove your Gentle Office checkout if you no longer need it. **Do not delete `~/.pi/agent/sessions/` or other Pi configuration:** those belong to Pi, not this project.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| `/office` is unavailable | Confirm the extension link points to an existing file, then restart Pi. |
+| “Gentle Office not found” | Use `~/gentle-office` or export the correct `GENTLE_OFFICE_DIR` before starting Pi. |
+| Session is not saved | Use a Pi session saved to disk; in-memory sessions cannot be followed. |
+| Office update pending | Run `/office restart`; restart Pi too if the extension changed. |
+| Window does not open | Check your platform's browser opener; try standalone mode and open the printed URL manually. |
+| Always-on-top is unavailable | Use a browser supporting Document Picture-in-Picture; normal viewing still works. |
+| Checkout has local changes | Preserve them before updating; do not force the switch. |
+
+Never paste a token-bearing office URL or real session transcript into a public issue.
 
 ## How it works
 
@@ -128,6 +220,12 @@ See [SECURITY.md](SECURITY.md) for the threat model and how to report a vulnerab
 - Hub mode shows at most eight sessions.
 - Day-to-day use has mainly been on WSL with Microsoft Edge. macOS and native Linux window opening are untested.
 
+## Contributing
+
+Report reproducible bugs and scoped feature requests using the [issue forms](https://github.com/MataM15/gentle-office/issues/new/choose). For usage questions and early ideas, use [Discussions](https://github.com/MataM15/gentle-office/discussions).
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a PR. The maintainer handles labels and reviews; you do not need to label your issue or PR. Security reports must stay private: see [SECURITY.md](SECURITY.md).
+
 ## Development
 
 No install step: clone and run.
@@ -146,6 +244,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for branches, commits and the release pro
 ## Versioning
 
 Gentle Office follows [Semantic Versioning](https://semver.org/). Changes are recorded in [CHANGELOG.md](CHANGELOG.md) using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and commits use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
+
+During `0.x`, patch releases contain compatible fixes and minor releases may include breaking changes, explicitly called out in the release notes. A package version or changelog entry alone is not a published release: use the tags and assets on GitHub Releases. Maintainers follow the [release checklist](docs/releases.md).
 
 ## License
 

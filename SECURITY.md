@@ -2,12 +2,9 @@
 
 ## Supported versions
 
-Gentle Office is pre-1.0. Only the latest released version receives security fixes.
+Gentle Office is currently an early-stage public preview, with no stable release announced. Report security problems against the current default-branch commit and include its commit ID.
 
-| Version | Supported |
-| --- | --- |
-| 0.1.x | Yes |
-| < 0.1 | No |
+Once tagged releases are published, only the latest release will receive security fixes. Historical version headings in the changelog do not by themselves indicate a published or supported release.
 
 ## Reporting a vulnerability
 

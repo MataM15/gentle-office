@@ -5,6 +5,14 @@
   "type": "module",
   "license": "MIT",
   "author": "MataM15",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MataM15/gentle-office.git"
+  },
+  "homepage": "https://github.com/MataM15/gentle-office#readme",
+  "bugs": {
+    "url": "https://github.com/MataM15/gentle-office/issues"
+  },
   "keywords": ["pi", "coding-agent", "pixel-art", "sse", "gentle-ai"],
   "engines": {
     "node": ">=22"
@@ -18,7 +26,11 @@
     "extensions/",
     "README.md",
     "LICENSE",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
+    "docs/"
   ],
   "scripts": {
     "start": "node src/server.mjs",
