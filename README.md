@@ -27,7 +27,7 @@ A two-minute browser recording with synthetic sessions: tool activity, delegatio
 - **Hub mode.** One page shows up to eight Pi sessions side by side.
 - **Pi extension.** `/office` registers the current session with the hub and opens a window.
 - **Always on top.** A compact Document Picture-in-Picture window keeps the office visible.
-- **Private by design.** Loopback only, random capability token, and a sanitized snapshot that never includes prompts, outputs or file paths.
+- **Privacy-conscious by design.** Loopback only and a random capability token. Raw prompts and tool outputs are not exported; delegated-task summaries are shortened and filtered on a best-effort basis, not guaranteed anonymous.
 - **Zero dependencies.** Plain Node.js 22 and a browser. No dependency installation required.
 
 ## Requirements
@@ -203,9 +203,9 @@ What the browser receives:
 
 - The project directory's base name (never the full path).
 - Activity labels and tool kinds from a closed list, counters, timestamps and roles.
-- A short summary of each delegated task: the first sentence, cut to 60 characters, with paths reduced to base names and common secret patterns masked. This is best-effort, not a guarantee of anonymization.
+- A short summary of each delegated task: the first sentence, cut to 60 characters, with recognized paths reduced to base names and common secret patterns masked. This is best-effort, not a guarantee of anonymization: sensitive prose, unrecognized secrets or path fragments can survive. Do not put sensitive information in task descriptions or share office screenshots without reviewing them.
 
-What is never exported: prompts, assistant replies, tool arguments or outputs, session file paths, owner PIDs, original tool-call IDs and arbitrary agent names.
+Raw prompts, assistant replies, tool argument objects and outputs are not exported. Session file paths, owner PIDs, original tool-call IDs and arbitrary agent names are excluded from their structured fields. The derived task summaries described above are the exception to treating all task text as private.
 
 The page's only remote request is the "Built with Gentle-AI" badge image from `raw.githubusercontent.com`, sent without a referrer.
 
@@ -253,4 +253,4 @@ During `0.x`, patch releases contain compatible fixes and minor releases may inc
 
 ## Español
 
-Gentle Office es una oficina en pixel art que muestra en vivo tus sesiones del agente de programación Pi: el orquestador y sus subagentes caminan, leen, escriben y entregan resultados mientras trabajan. Requiere Node.js 22 y no tiene dependencias. Clona el repositorio en `~/gentle-office` (o define `GENTLE_OFFICE_DIR`) y ejecuta `node src/server.mjs --cwd /ruta/al/proyecto`. Para usarlo desde Pi, enlaza `extensions/pi/gentle-office.ts` en `~/.pi/agent/extensions/` y usa `/office`. El servidor solo escucha en `127.0.0.1`, exige un token aleatorio y nunca exporta prompts, respuestas ni rutas. Es un proyecto comunitario, no oficial ni afiliado a Gentleman Programming. La documentación completa está en inglés.
+Gentle Office es una oficina en pixel art que muestra en vivo tus sesiones del agente de programación Pi: el orquestador y sus subagentes caminan, leen, escriben y entregan resultados mientras trabajan. Requiere Node.js 22 y no tiene dependencias. Clona el repositorio en `~/gentle-office` (o define `GENTLE_OFFICE_DIR`) y ejecuta `node src/server.mjs --cwd /ruta/al/proyecto`. Para usarlo desde Pi, enlaza `extensions/pi/gentle-office.ts` en `~/.pi/agent/extensions/` y usa `/office`. El servidor solo escucha en `127.0.0.1` y exige un token aleatorio. No exporta prompts, respuestas ni resultados de herramientas completos, pero los resúmenes de tareas delegadas se acortan y filtran sin garantizar anonimización; pueden conservar texto sensible o fragmentos de rutas. Es un proyecto comunitario, no oficial ni afiliado a Gentleman Programming. La documentación completa está en inglés.

@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Pin GitHub Actions to exact official v4 commits without changing workflow permissions or release behavior.
+- Clarify that delegated-task summaries use best-effort filtering, not guaranteed anonymization, in the README.
 - Package metadata now links to the proposed GitHub repository and includes documentation assets.
 - Public-preview scope is explicitly Pi-only; OpenCode remains planned follow-up work, with first-tagged-release installation checks still pending.
 
@@ -27,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hub mode that shows up to eight registered Pi sessions on one page, with hot reload that keeps registrations.
 - Pi extension with the `/office` and `/office restart` commands.
 - "Always on top" compact window using Document Picture-in-Picture.
-- Loopback-only server with a random capability token, strict security headers and a sanitized snapshot that never exports prompts, outputs or paths.
+- Loopback-only server with a random capability token, strict security headers and a sanitized activity snapshot; derived task summaries use best-effort filtering.
 - Offline frame renderer and headless layout capture scripts for development.
 
 [Unreleased]: https://github.com/MataM15/gentle-office/compare/v0.1.0...HEAD
