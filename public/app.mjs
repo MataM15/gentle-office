@@ -80,6 +80,11 @@ function draw(now, delta) {
       : orchestrator ? active?.activity ?? 'Waiting'
       : active ? `${active.state === 'unknown' ? 'Unconfirmed' : 'Delegated task'}${matches.length > 1 ? ` · ${matches.length}` : ''}` : 'Waiting';
     agents[d.id] = {working, hand:working ? tick % 2 : 0, bob:working ? tick % 2 : 0, phase:tick};
+    // Worker animation reads the delegation state and how long the oldest task has run.
+    if (!orchestrator && active) {
+      agents[d.id].agentState = active.state;
+      agents[d.id].activeSeconds = Math.max(...matches.map(a => (Date.now() - a.started) / 1000));
+    }
     const pose = orchestrator ? (trip.away ? trip : {...trip, tool}) : workerPose;
     if (pose) Object.assign(agents[d.id], pose);
     if (orchestrator) agents[d.id].error = connected && !!status?.session && errorFeedback.active(now);
@@ -102,7 +107,7 @@ function draw(now, delta) {
     n.bubble.style.minHeight = `${height / 432 * 100}%`;
     n.bubble.style.borderColor = d.color;
   });
-  renderer.render({agents, review, lighting:officeLighting()});
+  renderer.render({agents, review, lighting:officeLighting(), time:now / 1000});
 }
 return {update, draw, resize, disconnect() { lifecycle = null; errorFeedback.reset(); gestures.disconnect(); }, destroy() { cell.remove(); }};
 }
@@ -128,7 +133,7 @@ stream.onerror = () => { connected = false; for (const instance of instances.val
 function resize() {
   const win = office.ownerDocument.defaultView;
   const count = instances.size;
-  const sideHeight = count === 1 && win.innerWidth < 960 ? office.querySelector('#side').offsetHeight + 12 : 0;
+  const sideHeight = count > 0 && win.innerWidth < 960 ? office.querySelector('#side').offsetHeight + 12 : 0;
   const height = win.innerHeight - grid.getBoundingClientRect().top - sideHeight - 12;
   const layout = officeLayout(count, grid.clientWidth || win.innerWidth, height);
   office.classList.toggle('multiple', count > 1);

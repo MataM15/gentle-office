@@ -14,7 +14,61 @@ export const walls = [
   [456,242,12,58], [456,344,12,64],
 ];
 export const bubbleFill = '#fff4d6';
+// Lighten (+) or darken (-) a palette colour for pixel-art shading.
+const shades = new Map();
+function shade(hex, amount) {
+  const key = hex + amount;
+  if (!shades.has(key)) {
+    const rgb = hex.slice(1).match(/../g).map(v => parseInt(v, 16));
+    const mixed = rgb.map(v => Math.round(amount < 0 ? v * (1 + amount) : v + (255 - v) * amount));
+    shades.set(key, '#' + mixed.map(v => v.toString(16).padStart(2, '0')).join(''));
+  }
+  return shades.get(key);
+}
 export const frameCount = 84;
+
+// Idle life, driven by an optional clock in seconds. Without one nothing moves.
+const roleIndex = id => Math.max(0, desks.findIndex(d => d.id === id));
+// Eyes shut for ~0.16s every 4-7s; each role has its own period and offset.
+export function blinkClosed(time, id) {
+  if (!Number.isFinite(time)) return false;
+  const i = roleIndex(id), period = 4.1 + i * .8;
+  return (time + i * 1.7) % period < .16;
+}
+// One-pixel chest rise on a ~3.4s cycle, out of step between roles.
+export function breathLift(time, id) {
+  if (!Number.isFinite(time)) return 0;
+  return Math.sin((time / 3.4 + roleIndex(id) * .27) * Math.PI * 2) > 0 ? 1 : 0;
+}
+
+// Fatigue: a worker active for this long starts to look tired (mug, yawns, stretches).
+export const FATIGUE_AFTER_SECONDS = 90;
+const FATIGUE_PERIOD = 18;
+// Which tired gesture is playing: a ~2s yawn and a ~2.5s stretch every 18s, offset per role.
+export function fatigueMoment(activeSeconds, time, id) {
+  if (!Number.isFinite(activeSeconds) || !Number.isFinite(time) || activeSeconds < FATIGUE_AFTER_SECONDS) return null;
+  const phase = (time + roleIndex(id) * 5.3) % FATIGUE_PERIOD;
+  return phase >= 4 && phase < 6.2 ? 'yawn' : phase >= 11 && phase < 13.5 ? 'stretch' : null;
+}
+// The writer stops to think for 2s of every 13s; code stops scrolling meanwhile.
+const THINK_PERIOD = 13, THINK_START = 9.5, THINK_LENGTH = 2;
+export function writerThinking(time) {
+  if (!Number.isFinite(time)) return false;
+  const at = time % THINK_PERIOD;
+  return at >= THINK_START && at < THINK_START + THINK_LENGTH;
+}
+// Lines scrolled so far: continuous, because thinking time does not count.
+function codeScroll(time) {
+  const cycle = Math.floor(time / THINK_PERIOD), at = time % THINK_PERIOD;
+  const paused = cycle * THINK_LENGTH + Math.max(0, Math.min(THINK_LENGTH, at - THINK_START));
+  return Math.floor((time - paused) * 4);
+}
+// A delivered result tints the worker's monitor for this long, and the worker
+// reacts (cheer or slump) for REACTION_SECONDS from the moment it reaches the visitor.
+export const OUTCOME_SECONDS = 6;
+export const REACTION_SECONDS = 3;
+const failedLike = state => state === 'failed' || state === 'aborted' || state === 'blocked';
+const GREEN = '#8fbf94', RED = '#d85a5a', AMBER = '#efc68e';
 
 // Local browser time; no server timezone or tint over actors/UI.
 export function officeLighting(date = new Date()) {
@@ -24,36 +78,79 @@ export function officeLighting(date = new Date()) {
     : {period:'night', sky:'#45465f', reflection:'#9691ac', lamp:'#fff4d6'};
 }
 
-export function createScene(ctx, avatar) {
+// Offscreen 640x432 layer for the static room; null when the context has no real canvas.
+const defaultLayer = ctx => () => {
+  const canvas = ctx.canvas;
+  if (!canvas || typeof ctx.drawImage !== 'function') return null;
+  const layer = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(640,432)
+    : canvas.ownerDocument?.createElement?.('canvas');
+  const layerCtx = layer?.getContext?.('2d');
+  if (!layerCtx) return null;
+  layer.width = 640; layer.height = 432;
+  layerCtx.imageSmoothingEnabled = false;
+  return {canvas:layer, ctx:layerCtx};
+};
+export function createScene(ctx, avatar, {createLayer=defaultLayer(ctx)}={}) {
   const box = (x,y,w,h,color) => { ctx.fillStyle = color; ctx.fillRect(x,y,w,h); };
+  // One lit plank-tile: alternating tone, top highlight, bottom shade, rare scuff.
+  function tile(left,top,right,bottom,tx,ty) {
+    const n=(tx-16)/28+(ty-28)/28;
+    box(left,top,right-left,bottom-top,(n&1)?'#7d6c73':'#817077');
+    if (top===ty) box(left,top,right-left,1,'#8d7c83');
+    if (bottom===ty+26) box(left,bottom-1,right-left,1,'#716068');
+    if ((n*7+tx)%5===0 && right-left>14 && bottom-top>14) box(tx+9,ty+13,3,1,'#74636a');
+    if ((n*3+ty)%7===0 && right-left>20 && bottom-top>20) box(tx+17,ty+7,1,3,'#74636a');
+  }
   function floor(x,y,w,h) {
     box(x,y,w,h,'#76636a');
     for (let ty=28+Math.floor((y-28)/28)*28; ty<y+h; ty+=28)
       for (let tx=16+Math.floor((x-16)/28)*28; tx<x+w; tx+=28) {
         const left=Math.max(x,tx), top=Math.max(y,ty);
         const right=Math.min(x+w,tx+26), bottom=Math.min(y+h,ty+26);
-        if (right>left && bottom>top) box(left,top,right-left,bottom-top,'#817077');
+        if (right>left && bottom>top) tile(left,top,right,bottom,tx,ty);
       }
   }
   function wall(x,y,w,h) {
     box(x,y+5,w,h,'#49303e'); box(x,y,w,h,'#d1b6ab'); box(x,y,w,3,'#f5eae2');
+    if (w>h) {
+      // Panel seams and a shaded lower edge give the plaster some depth.
+      box(x,y+h-2,w,2,'#bfa398');
+      for (let sx=x+28-(x%28); sx<x+w-2; sx+=28) box(sx,y+3,1,h-5,'#c7ab9f');
+    } else { box(x,y,2,h,'#e6d6cc'); box(x+w-2,y,2,h,'#bfa398'); }
   }
   function shelf(x,y,w,memory) {
     box(x+4,y+6,w,64,'#241923'); box(x,y,w,64,'#8c6262');
+    box(x,y,w,2,'#a67a6e'); box(x,y,2,64,'#a67a6e'); box(x+w-2,y+2,2,62,'#765466');
+    const spines = memory ? ['#b894ac','#a1799a','#c9a9bd','#b08aa6'] : ['#9bd4cd','#efc68e','#c3b4ed'];
     for (let row=0;row<2;row++) {
-      box(x+4,y+6+row*28,w-8,22,'#392b35');
+      box(x+4,y+6+row*28,w-8,22,'#392b35'); box(x+4,y+6+row*28,w-8,3,'#2d222c');
       for (let col=0;col<(w-12)/16;col++) {
-        const bx=x+8+col*16, by=y+9+row*28;
-        box(bx,by,10,17,memory?'#b894ac':['#9bd4cd','#efc68e','#c3b4ed'][col%3]);
-        box(bx+2,by+4,6,3,'#f5eae2');
+        const bx=x+8+col*16, by=y+9+row*28, gap=(col*5+row*3)%7===4;
+        // Book heights vary; one slot per shelf stays empty and one book leans.
+        const bh=gap ? 0 : 17-((col+row*2)%3)*2, top=by+17-bh, color=spines[(col+row)%spines.length];
+        if (gap) { box(bx+3,by+13,6,4,'#cda28a'); continue; }
+        box(bx,top,10,bh,color); box(bx,top,2,bh,shade(color,.18)); box(bx+8,top,2,bh,shade(color,-.18));
+        box(bx+2,top+4,6,3,'#f5eae2'); box(bx+3,top+bh-4,4,1,shade(color,-.3));
+        if ((col+row)%4===1) { box(bx+10,by+3,3,14,shade(color,-.1)); box(bx+10,by+3,1,14,shade(color,.2)); }
       }
     }
-    box(x,y+60,w,4,'#cda28a');
+    box(x,y+60,w,4,'#cda28a'); box(x,y+60,w,1,'#efd3af');
+    if (memory) {
+      // A small plant and a box file keep the shelf tops from looking bare.
+      box(x+8,y-12,10,12,'#8c6262'); box(x+6,y-14,14,3,'#cda28a');
+      box(x+9,y-22,3,8,'#6f9a7c'); box(x+13,y-26,3,12,'#4d7a63'); box(x+16,y-20,3,6,'#8fbf94');
+      box(x+w-30,y-10,22,10,'#c3b4ed'); box(x+w-30,y-10,22,2,'#d9cef3'); box(x+w-24,y-6,10,3,'#f5eae2');
+    }
   }
   function chair(x,y) {
     box(x-8,y+24,48,44,'#392b35'); box(x-5,y+27,42,34,'#514353');
     box(x-3,y+29,3,20,'#8c6262'); box(x+32,y+29,3,20,'#8c6262');
     box(x-8,y+60,48,6,'#765466');
+    // Headrest stitching, armrest highlights and a caster base.
+    box(x-5,y+27,42,2,'#625066'); box(x+15,y+29,2,28,'#463a49');
+    box(x-3,y+29,1,20,'#a67a6e'); box(x+32,y+29,1,20,'#a67a6e');
+    box(x-8,y+60,48,1,'#8a6a7c'); box(x+12,y+66,8,6,'#241923');
+    box(x+4,y+71,24,2,'#241923'); box(x+3,y+72,3,2,'#1A1218'); box(x+26,y+72,3,2,'#1A1218');
   }
   // The orchestrator's head, reduced from the reference portrait to the office
   // palette and retouched by hand (eyes, brows). One character per pixel.
@@ -117,20 +214,44 @@ export function createScene(ctx, avatar) {
       }
     });
   }
-  function actor(x,y,color,id,drawChair=true,paint=box) {
-    if (drawChair) chair(x,y);
+  // `arm` is the walking swing in pixels (positive: left hand forward/down);
+  // `carry` keeps the right arm still because it holds a book or cup.
+  function actor(x,y,color,id,drawChair=true,paint=box,arm=0,carry=false,life={}) {
+    const {blink=false, facing=0, lift=0} = life;
+    // Breathing lowers the body, never the chair it sits in.
+    if (drawChair) chair(x,y-lift);
     // A separate paint function lets walking reuse every head/outfit pixel.
-    const box = paint;
+    const box = paint, walking = !drawChair;
+    const dark = shade(color,-.16), light = shade(color,.16);
     if (id==='orchestrator') {
+      const aL=walking ? arm : 0, aR=walking && !carry ? -arm : 0;
       box(x+9,y+33,15,8,'#ad6e54'); box(x+12,y+35,10,6,'#d4946d');
       box(x+6,y+34,6,4,color); box(x+24,y+34,4,4,color);
-      box(x+2,y+38,30,18,color); box(x-2,y+40,6,14,color);
-      box(x+30,y+40,4,14,'#c875a1'); box(x+2,y+40,2,12,'#ffc0df');
+      box(x+2,y+38,30,18,color);
+      box(x+30,y+40,4,14+aR,'#c875a1'); box(x+2,y+40,2,12,'#ffc0df');
       box(x+28,y+43,4,13,'#c875a1'); box(x+7,y+36,3,4,'#faf0e3');
       box(x+10,y+40,4,3,'#faf0e3'); box(x+24,y+36,3,4,'#faf0e3');
       box(x+20,y+40,4,3,'#faf0e3'); box(x+16,y+43,2,13,'#c875a1');
+      // Jacket hem, buttons, pocket square and fold creases.
+      box(x+2,y+52,30,4,dark); box(x+16,y+46,2,2,'#faf0e3'); box(x+16,y+50,2,2,'#faf0e3');
+      box(x+22,y+46,6,1,dark); box(x+8,y+47,5,1,dark); box(x+25,y+42,3,2,'#ffc0df');
+      // Sleeves: the left one swings, the right one only when no prop is held.
+      box(x-2,y+40,6,14+aL,color); box(x-2,y+40,2,14+aL,'#ffc0df'); box(x-2,y+51+aL,6,3,dark);
+      if (walking) {
+        box(x-2,y+54+aL,6,4,'#e4a780');
+        if (!carry) { box(x+30,y+54+aR,5,4,'#e4a780'); box(x+30,y+51+aR,5,3,dark); }
+      }
       // The pixel head is the default; the portrait crop remains as an explicit option.
-      if (!avatar?.portraitHead) { head(x,y-8,box); return; }
+      if (!avatar?.portraitHead) {
+        head(x,y-8,box);
+        // Eyes sit on head row 25: lids when blinking, iris shifted towards travel.
+        if (blink) for (const ex of [16,23]) box(x+ex,y+17,3,1,headPalette.h);
+        else if (facing) for (const ex of [16,23]) {
+          const eye = facing>0 ? 'WHB' : 'BHW';
+          for (let i=0;i<3;i++) box(x+ex+i,y+17,1,1,headPalette[eye[i]]);
+        }
+        return;
+      }
       const silhouette = [
         [28,7],[38,7],[38,8],[43,8],[43,11],[45,11],[45,16],[46,16],
         [46,24],[44,24],[44,26],[47,26],[47,37],[45,37],[45,40],[43,40],
@@ -146,54 +267,161 @@ export function createScene(ctx, avatar) {
       ctx.closePath(); ctx.clip(); ctx.drawImage(avatar,16,7,32,47,x,y-8,32,47); ctx.restore();
       return;
     }
-    box(x+11,y+24,10,8,'#ad796b'); box(x+2,y+30,28,26,color);
-    box(x-4,y+34,8,18,color); box(x+28,y+34,8,18,color);
+    box(x+11,y+24,10,8,'#ad796b'); box(x+11,y+24,10,3,'#8c6a5e'); box(x+2,y+30,28,26,color);
+    // Torso shading: lit left edge, shaded right edge, hem and fold creases.
+    box(x+2,y+32,2,22,light); box(x+26,y+32,4,24,dark); box(x+2,y+50,28,6,dark);
+    box(x+8,y+40,4,1,dark); box(x+20,y+44,5,1,dark); box(x+6,y+46,3,1,dark);
     box(x+6,y+30,6,4,'#f5eae2'); box(x+20,y+30,6,4,'#f5eae2');
-    box(x+14,y+36,4,18,'#765466'); box(x+6,y-2,20,28,'#ad796b');
+    box(x+7,y+33,4,1,'#c9c4d5'); box(x+21,y+33,4,1,'#c9c4d5');
+    box(x+14,y+36,4,18,'#765466'); box(x+14,y+36,1,18,'#8c6262');
+    box(x+2,y+52,28,3,'#392b35'); box(x+14,y+52,4,3,'#efc68e');
+    // Role gear sits under the arms so sleeves overlap it naturally.
+    if (id==='scout') {
+      box(x+3,y+31,3,24,'#49303e'); box(x+3,y+31,1,24,'#765466');
+      box(x+25,y+44,9,9,'#8c6262'); box(x+25,y+44,9,3,'#a67a6e'); box(x+28,y+46,3,2,'#efc68e');
+    } else if (id==='writer') {
+      box(x+21,y+38,6,6,dark); box(x+22,y+36,1,4,'#c875a1'); box(x+24,y+36,1,4,'#9bd4cd');
+    } else {
+      box(x+6,y+33,3,16,dark); box(x+23,y+33,3,16,dark);
+      box(x+21,y+42,6,6,light); box(x+23,y+40,1,3,'#c875a1');
+    }
+    // Sleeves with cuffs; the swing makes one hand lead and the other trail.
+    const aL=walking ? arm : 0, aR=walking && !carry ? -arm : 0, cuff='#f5eae2', skin='#efc3a1';
+    const {raise=null, stretch=false, time=0} = life;
+    if (stretch) {
+      // Both arms reach up beside the head, swaying a little.
+      const sway = Math.round(Math.sin(time*5));
+      for (const [ax,edge] of [[x-8+sway,light],[x+32-sway,dark]]) {
+        box(ax<x ? x-4 : x+28,y+30,8,8,color); box(ax,y+8,8,26,color); box(ax+(ax<x?0:6),y+8,2,26,edge);
+        box(ax,y+8,8,3,cuff); box(ax,y+1,8,7,skin); box(ax,y+1,8,1,'#f5d9bc');
+      }
+    } else {
+      if (raise) {
+        // Left arm lifted: a thumbs-up fist, or a hand pressed to the head.
+        box(x-4,y+30,8,8,color);
+        if (raise==='thumb') {
+          box(x-9,y+20,7,12,color); box(x-9,y+20,2,12,light); box(x-9,y+19,7,2,cuff);
+          box(x-9,y+13,7,7,skin); box(x-8,y+8,2,6,skin); box(x-9,y+19,7,1,'#d5a88e');
+        } else {
+          box(x-8,y+14,6,18,color); box(x-8,y+14,2,18,light); box(x-8,y+13,6,2,cuff);
+          box(x-5,y+5,10,8,skin); box(x-5,y+12,10,1,'#d5a88e');
+        }
+      } else {
+        box(x-4,y+34,8,18+aL,color); box(x-4,y+34,2,18+aL,light); box(x-4,y+49+aL,8,3,cuff);
+      }
+      box(x+28,y+34,8,18+aR,color); box(x+34,y+34,2,18+aR,dark); box(x+28,y+49+aR,8,3,cuff);
+      if (walking) {
+        if (!raise) { box(x-3,y+52+aL,6,4,skin); box(x-3,y+55+aL,6,1,'#d5a88e'); }
+        if (!carry) { box(x+29,y+52+aR,6,4,skin); box(x+29,y+55+aR,6,1,'#d5a88e'); }
+      }
+    }
+    box(x+6,y-2,20,28,'#ad796b');
     box(x+2,y+6,28,16,'#d5a88e'); box(x+6,y+2,18,22,'#efc3a1');
+    // Ears, cheeks, jaw shade and brows; eyes get a glint so they read as alive.
+    box(x+3,y+11,2,5,'#ad796b'); box(x+27,y+11,2,5,'#ad796b');
+    box(x+6,y+22,18,2,'#d5a88e'); box(x+8,y+19,3,2,'#e8a99a'); box(x+21,y+19,3,2,'#e8a99a');
     box(x+8,y+8,6,2,'#f5d9bc'); box(x+8,y+12,6,2,'#623f43');
     box(x+20,y+12,5,2,'#623f43'); box(x+10,y+15,2,3,'#1A1218');
-    box(x+22,y+15,2,3,'#1A1218'); box(x+16,y+18,3,3,'#ad796b');
-    box(x+12,y+24,8,2,'#8c6262');
+    box(x+22,y+15,2,3,'#1A1218'); box(x+10,y+15,1,1,'#f5eae2'); box(x+22,y+15,1,1,'#f5eae2');
+    box(x+16,y+18,3,3,'#ad796b'); box(x+17,y+17,1,2,'#f5d9bc');
+    box(x+12,y+24,8,2,'#8c6262'); box(x+13,y+24,6,1,'#a8706a');
     if (id==='scout') {
       box(x+4,y-4,22,8,'#45616a'); box(x,y+2,32,5,'#9bd4cd');
       box(x+14,y-2,6,4,'#efc68e'); box(x+2,y+7,4,8,'#49303e');
+      box(x+6,y-3,10,1,'#5d808a'); box(x,y+6,32,1,'#7bb3ad'); box(x+4,y+7,24,1,'#b88e78');
+      box(x+25,y+7,3,5,'#49303e'); box(x+15,y-1,4,1,'#c8a56e');
     } else if (id==='writer') {
       box(x+6,y-4,18,6,'#49303e'); box(x+2,y,10,10,'#623f43');
       box(x+8,y-2,12,3,'#8c6262'); box(x+24,y+2,4,10,'#49303e');
-      box(x+6,y+14,22,6,'#49303e'); box(x+8,y+15,6,3,'#d5a88e');
-      box(x+20,y+15,6,3,'#d5a88e'); box(x+28,y+10,2,12,'#efc68e');
+      box(x+28,y+10,2,12,'#efc68e');
+      // Round frames with pupils inside, a bridge, temples and hair strands.
+      box(x+7,y+13,9,7,'#49303e'); box(x+8,y+14,7,5,'#efc3a1');
+      box(x+18,y+13,9,7,'#49303e'); box(x+19,y+14,7,5,'#efc3a1');
+      box(x+16,y+15,2,1,'#49303e'); box(x+5,y+14,2,1,'#49303e'); box(x+27,y+14,2,1,'#49303e');
+      box(x+10,y+15,2,3,'#1A1218'); box(x+22,y+15,2,3,'#1A1218'); box(x+8,y+14,2,1,'#f5eae2');
+      box(x+4,y+1,2,8,'#49303e'); box(x+12,y-3,6,1,'#623f43'); box(x+9,y+2,5,1,'#623f43');
+      box(x+28,y+8,2,2,'#c875a1');
     } else {
       box(x+6,y-4,20,6,'#c9c4d5'); box(x+2,y,24,6,'#e3deeb');
       box(x+8,y,12,2,'#f5eae2'); box(x+2,y+6,6,6,'#c9c4d5');
       box(x+26,y+2,4,20,'#9691ac'); box(x+28,y+18,4,10,'#c3b4ed');
+      // Strand lines, a side parting and a shaded ponytail.
+      box(x+10,y-4,1,5,'#e3deeb'); box(x+16,y-3,1,4,'#b0aac3'); box(x+4,y+2,1,5,'#b0aac3');
+      box(x+24,y+6,2,10,'#c9c4d5'); box(x+29,y+3,1,17,'#7d7894'); box(x+29,y+19,3,2,'#c875a1');
     }
+    if (blink || facing) {
+      // Repaint the eyes over the base face: lids when blinking, otherwise
+      // pupils and nose nudged towards the walking direction.
+      for (const ex of [10,22]) box(x+ex,y+15,2,3,'#efc3a1');
+      if (blink) for (const ex of [10,22]) box(x+ex,y+16,2,1,'#623f43');
+      else {
+        for (const ex of [10,22]) { box(x+ex+facing,y+15,2,3,'#1A1218'); box(x+ex+facing,y+15,1,1,'#f5eae2'); }
+        box(x+16,y+17,3,4,'#efc3a1');
+        box(x+16+facing*2,y+18,3,3,'#ad796b'); box(x+17+facing*2,y+17,1,2,'#f5d9bc');
+      }
+    }
+    if (life.yawn) { box(x+12,y+23,8,6,'#392b35'); box(x+14,y+26,4,2,'#c875a1'); box(x+12,y+23,8,1,'#8c6262'); }
   }
-  function workstation(d, pose) {
+  function workstation(d, pose, life={}) {
     const {x,y}=d;
     box(x+4,y+102,104,12,'#392b35');
     if (pose?.away || pose?.hidden) chair(x+38,y+8);
-    else actor(x+38,y+8+(pose?.bob??0),d.color,d.id);
+    else actor(x+38,y+8+(pose?.bob??0)+(life.lift??0),d.color,d.id,true,box,0,false,life);
     box(x+8,y+84,8,22,'#8c6262'); box(x+92,y+84,8,22,'#8c6262');
     box(x,y+70,108,20,'#946b68'); box(x,y+58,108,24,'#cda28a');
     box(x,y+58,108,4,'#efd3af'); box(x+34,y+64,40,6,'#f5eae2');
     for (let key=0;key<7;key++) box(x+37+key*5,y+66,2,2,'#765466');
+    // Desk edge shading, drawer fronts and per-role desk props.
+    box(x,y+82,108,2,'#7a5a58'); box(x,y+62,2,20,'#e0bfa8'); box(x+106,y+62,2,20,'#b88e78');
+    for (const dx of [6,82]) {
+      box(x+dx,y+86,20,3,'#8c6262'); box(x+dx+8,y+87,4,1,'#efc68e');
+    }
+    const key=pose?.hand ? 1 : 0;
+    if (d.id==='orchestrator') {
+      box(x+8,y+54,6,7,'#f5eae2'); box(x+14,y+56,2,3,'#f5eae2'); box(x+9,y+55,4,2,'#76492e');
+      box(x+9,y+50,1,3,'#c9c4d5'); box(x+12,y+48-key,1,4,'#c9c4d5');
+      box(x+88,y+58,12,3,'#514353'); box(x+90,y+55,8,3,'#f5eae2');
+    } else if (d.id==='scout') {
+      box(x+8,y+54,10,8,'#8c6262'); box(x+6,y+52,14,3,'#cda28a');
+      box(x+9,y+44,2,9,'#6f9a7c'); box(x+13,y+42,2,11,'#4d7a63'); box(x+16,y+47,2,6,'#8fbf94');
+      box(x+88,y+55,10,6,'#9bd4cd'); box(x+89,y+56,8,1,'#f5eae2');
+    } else if (d.id==='writer') {
+      box(x+8,y+52,9,10,'#49303e'); box(x+9,y+46,1,7,'#efc68e'); box(x+12,y+44,1,9,'#c875a1');
+      box(x+14,y+47,1,6,'#9bd4cd');
+      box(x+84,y+57,16,4,'#f5eae2'); box(x+86,y+54,14,3,'#fff4d6'); box(x+84,y+60,16,1,'#c9c4d5');
+    } else {
+      box(x+8,y+54,6,7,'#f5eae2'); box(x+14,y+56,2,3,'#f5eae2'); box(x+9,y+55,4,2,'#9bd4cd');
+      box(x+86,y+54,5,5,'#efc68e'); box(x+92,y+55,5,5,'#c875a1'); box(x+88,y+59,10,2,'#c9c4d5');
+    }
     const act=!pose?.away && !pose?.hidden && actions[pose?.tool?.kind];
     if (act) act(x,y,Math.floor(pose.tool.t*6),d.color);
-    else if (!pose?.away && !pose?.hidden) {
+    else if (!pose?.away && !pose?.hidden && !life.stretch) {
       box(x+34,y+54,8,10,d.color); box(x+66,y+54,8,10,d.color);
       box(x+36,y+62,10,4,'#765466'); box(x+62,y+62,10,4,'#765466');
       box(x+40,y+62-(pose?.hand??0),10,5,'#efc3a1');
-      box(x+58,y+62-(pose?.working?1-pose.hand:0),10,5,'#efc3a1');
+      if (life.think) {
+        // Chin in hand while the next line takes shape.
+        const [ax,ay]=[x+38,y+8+(pose?.bob??0)];
+        box(ax+30,ay+26,5,22,d.color); box(ax+22,ay+22,8,6,'#efc3a1'); box(ax+22,ay+27,8,1,'#d5a88e');
+      } else box(x+58,y+62-(pose?.working?1-pose.hand:0),10,5,'#efc3a1');
     }
     box(x+44,y+88,20,2,'#765466'); box(x+51,y+84,6,4,'#392b35');
     box(x+32,y+70,44,18,'#1A1218'); box(x+34,y+72,40,13,'#514353');
     box(x+35,y+72,38,2,'#765466');
+    const roleScreen = d.id!=='orchestrator' && !pose?.hidden && (pose?.outcome || pose?.working);
+    if (pose?.working && !act && !roleScreen) {
+      // Screen text scrolls with each typing beat.
+      for (let line=0;line<3;line++)
+        box(x+37+(line+key)%2*2,y+76+line*3,[18,24,12][(line+key)%3],1,line===2?'#9bd4cd':'#9691ac');
+    } else if (!pose?.away && !pose?.hidden && !roleScreen) box(x+37,y+77,10,1,'#625066');
     for (let vent=0;vent<4;vent++) box(x+45+vent*5,y+80,3,2,'#392b35');
+    if (roleScreen) roleMonitor(d, pose, life.time);
     if (pose?.working && !act) {
-      box(x+36,y+75,2,2,pose.hand?'#9bd4cd':'#45616a');
-      box(x+35,y+72,38,1,pose.hand?'#b894ac':'#765466');
-      const py=y+35-pose.phase%4*3;
+      if (d.id==='orchestrator') {
+        box(x+36,y+75,2,2,pose.hand?'#9bd4cd':'#45616a');
+        box(x+35,y+72,38,1,pose.hand?'#b894ac':'#765466');
+      }
+      const py=y+35-(Number.isFinite(pose.phase) ? pose.phase%4 : key*2)*3;
       box(x+80,py,2,2,d.color); box(x+85,py-5,1,3,d.color);
     }
     if (pose?.error) {
@@ -205,6 +433,81 @@ export function createScene(ctx, avatar) {
       box(x+70,y+44,6,12,d.color); box(x+72,y+34,6,12,'#efc3a1');
       box(x+76,y+34,10,3,'#efc3a1');
     }
+    // Long shifts: a steaming mug waits on the desk.
+    if (pose?.working && Number.isFinite(pose.activeSeconds) && pose.activeSeconds >= FATIGUE_AFTER_SECONDS) {
+      box(x+22,y+53,7,7,'#f5eae2'); box(x+29,y+55,2,3,'#f5eae2'); box(x+23,y+53,5,1,'#76492e');
+      box(x+22,y+59,7,1,'#d6cbc0'); box(x+22,y+53,1,6,'#e3deeb');
+      const beat=Number.isFinite(life.time) ? Math.floor(life.time*3) : 0;
+      for (let i=0;i<2;i++) box(x+24+i*3+(beat+i)%2,y+49-((beat+i*2)%4)*2,1,3,'#e3deeb');
+    }
+    // Unconfirmed work gets a quiet question mark beside the head.
+    if (pose?.agentState==='unknown' && !pose.away && !pose.hidden)
+      questionMark(x+72,y+6,life.time);
+  }
+  // 5x7 question mark in 2px cells, bobbing a pixel when a clock runs.
+  const questionRows = ['.###.','#...#','....#','...#.','..#..','.....','..#..'];
+  function questionMark(x,y,time) {
+    const dy=Number.isFinite(time) && Math.floor(time*2)%2 ? 1 : 0;
+    questionRows.forEach((row,r) => { for (let c=0;c<5;c++) if (row[c]==='#') box(x+c*2,y+r*2+dy,2,2,'#c9c4d5'); });
+  }
+  const codeLines = [
+    [0,['k',7],['i',9],['p',3]], [2,['k',5],['i',6],['p',2],['s',8]], [2,['i',8],['p',2],['i',10]],
+    [4,['k',6],['i',7],['p',4]], [4,['i',12],['p',2],['s',6]], [2,['p',3],['k',4]],
+    [0,['k',6],['i',5],['p',2],['i',7]], [2,['i',6],['p',2],['s',10]], [4,['k',4],['i',9],['p',3]],
+    [4,['i',7],['p',2],['i',4],['p',3]], [2,['k',8],['s',7]], [0,['p',3]],
+  ];
+  const treeRows = [[0,'d',14],[1,'f',12],[1,'f',9],[1,'d',11],[2,'f',10],[2,'f',7],[0,'d',12],[1,'f',13],[1,'f',8]];
+  // Role-specific monitor: writer code, scout file tree, verifier test lights;
+  // a delivered result tints the screen while it is being shown.
+  function roleMonitor(d, pose, time) {
+    const {x,y}=d, outcome=pose.outcome, clock=Number.isFinite(time) ? time : null;
+    if (outcome) {
+      const bad=failedLike(outcome), good=outcome==='completed';
+      const flash=bad && clock!==null && Math.floor(clock*3)%2;
+      const accent=good ? GREEN : bad ? RED : AMBER;
+      box(x+34,y+72,40,13,good ? '#2d4a3f' : bad ? (flash ? '#6e2f38' : '#52262e') : '#4a4030');
+      box(x+35,y+72,38,2,accent);
+      if (d.id!=='verifier') {
+        if (good) for (const [cx,cy,w] of [[0,4,2],[2,6,2],[4,4,2],[6,2,2],[8,0,2]]) box(x+50+cx,y+76+cy,w,2,GREEN);
+        else if (bad) { box(x+53,y+75,3,6,RED); box(x+53,y+82,3,2,RED); }
+        else box(x+49,y+79,12,2,AMBER);
+      }
+    }
+    if (d.id==='writer' && !outcome) {
+      const first=clock===null ? pose.hand??0 : codeScroll(clock);
+      for (let row=0;row<3;row++) {
+        const [indent,...segs]=codeLines[(first+row)%codeLines.length];
+        let lx=x+37+indent;
+        for (const [kind,w] of segs) {
+          box(lx,y+75+row*3,w,2,{k:'#c875a1',i:'#9bd4cd',s:AMBER,p:'#9691ac'}[kind]); lx+=w+2;
+        }
+        if (row===2 && clock!==null && (writerThinking(clock) || Math.floor(clock*2)%2===0)) box(lx,y+75+row*3,2,2,'#f5eae2');
+      }
+    } else if (d.id==='scout' && !outcome) {
+      const sel=clock===null ? 0 : Math.floor(clock*1.5)%treeRows.length;
+      const top=Math.max(0,Math.min(treeRows.length-3,sel-1));
+      for (let row=0;row<3;row++) {
+        const [depth,kind,w]=treeRows[top+row], ry=y+75+row*3, rx=x+37+depth*3;
+        if (top+row===sel) box(x+35,ry-1,38,4,'#625066');
+        if (depth) box(x+37+(depth-1)*3,ry-1,1,4,'#765466');
+        box(rx,ry,kind==='d' ? 4 : 3,2,kind==='d' ? AMBER : '#f5eae2');
+        box(rx+6,ry,w,1,top+row===sel ? '#f5eae2' : '#9691ac');
+      }
+    } else if (d.id==='verifier') testLights(d, pose, clock);
+  }
+  // Six test lamps and a progress bar: chasing amber while running, steady and
+  // green or red once the result is known.
+  function testLights({x,y}, pose, clock) {
+    const outcome=pose.outcome, bad=failedLike(outcome), unknown=pose.agentState==='unknown';
+    const lit=clock===null ? 0 : Math.floor(clock*5)%6;
+    for (let i=0;i<6;i++) {
+      const color=outcome==='completed' ? GREEN : bad ? (clock!==null && (Math.floor(clock*3)+i)%2 ? '#9a4247' : RED)
+        : outcome ? AMBER : unknown ? '#a98a5a' : i===lit ? AMBER : i===(lit+5)%6 ? '#a98a5a' : '#625066';
+      box(x+37+i*6,y+76,4,3,color); box(x+37+i*6,y+76,4,1,shade(color,.2));
+    }
+    box(x+37,y+81,34,2,'#392b35');
+    const fill=outcome==='completed' ? 34 : bad ? 18 : outcome ? 24 : unknown ? 12 : Math.round(((clock??0)*.12%1)*34);
+    box(x+37,y+81,fill,2,outcome==='completed' ? GREEN : bad ? RED : AMBER);
   }
   function furnishings() {
     shelf(300,72,116,true); shelf(460,72,116,true); shelf(492,266,100,false);
@@ -321,6 +624,8 @@ export function createScene(ctx, avatar) {
   // The Stacks reading table doubles as the review desk: diff sheets, lens, stamp.
   function reviewDesk(t, stamper=false) {
     box(492,366,100,24,'#cda28a'); box(492,366,100,3,'#efd3af');
+    box(492,388,100,3,'#946b68'); box(496,391,6,8,'#8c6262'); box(582,391,6,8,'#8c6262');
+    box(496,399,92,2,'#49303e'); box(582,356,8,8,'#f5eae2'); box(590,358,2,4,'#f5eae2'); box(583,357,6,2,'#9bd4cd');
     if (t==null) { box(504,358,28,12,'#f5eae2'); box(540,362,32,4,'#c3b4ed'); return; }
     const f=Math.floor(t*4);
     for (const [px,py] of [[498,352],[530,354]]) {
@@ -331,16 +636,46 @@ export function createScene(ctx, avatar) {
     ring(lx,358,5,'#49303e'); ray(lx+4,362,Math.PI/4,5,'#8c6262');
     // Stamp lifts, then thumps a check onto the last sheet.
     const up=f%6<3;
+    box(548,362,12,6,'#392b35'); box(549,363,10,3,'#c875a1');
     box(568,up?340:350,14,6,'#c875a1'); box(572,up?332:342,6,8,'#8c6262');
     // When the orchestrator stands behind the desk, it is their hand on the stamp.
     if (stamper) { box(576,up?328:338,8,10,desks[0].color); box(570,up?330:340,10,5,skin); }
+    if (!up) { box(566,364,2,1,'#f5eae2'); box(584,364,2,1,'#f5eae2'); }
     if (!up) { box(569,368,3,2,'#45616a'); box(572,370,3,2,'#45616a'); box(575,366,3,2,'#45616a'); box(578,364,3,2,'#45616a'); }
+  }
+  // Potted plant, base at (x,y); leaves fan out above the pot.
+  function plant(x,y,tall=1) {
+    box(x+2,y+24,16,3,'#392b35');
+    box(x+3,y+14,14,10,'#8c6262'); box(x+1,y+12,18,3,'#cda28a'); box(x+3,y+22,14,2,'#765466');
+    box(x+4,y+15,2,8,'#a67a6e');
+    box(x+9,y-8*tall,3,20*tall/1+0,'#4d7a63'); box(x+4,y+2-6*tall,4,14+6*tall,'#6f9a7c');
+    box(x+12,y+1-6*tall,4,14+6*tall,'#6f9a7c'); box(x+1,y+6-3*tall,3,10+3*tall,'#8fbf94');
+    box(x+16,y+5-3*tall,3,10+3*tall,'#8fbf94'); box(x+5,y+2-6*tall,1,6,'#8fbf94');
+  }
+  function props() {
+    // Wall clock and window sills on the north wall.
+    box(60,13,10,10,'#49303e'); box(61,14,8,8,'#f5eae2'); box(64,15,1,4,'#392b35'); box(64,18,3,1,'#c875a1');
+    for (const x of [172,364,540]) { box(x-2,24,56,2,'#f5eae2'); box(x,14,52,1,'#5a4450'); }
+    // Notice boards on the inner walls.
+    box(40,184,18,8,'#8c6262'); box(41,185,16,6,'#cda28a'); box(43,186,4,4,'#f5eae2');
+    box(49,186,4,3,'#9bd4cd'); box(54,187,2,3,'#c875a1');
+    box(330,184,26,8,'#392b35'); box(332,186,10,1,'#9bd4cd'); box(332,188,16,1,'#efc68e'); box(332,190,8,1,'#c875a1');
+    // Corridor runner under the review route, and the entrance mat.
+    box(176,203,360,20,'#5d4a58'); box(176,203,360,2,'#cda28a'); box(176,221,360,2,'#cda28a');
+    box(178,205,356,1,'#8c6262'); box(178,219,356,1,'#8c6262');
+    for (let rx=190;rx<530;rx+=24) { box(rx,211,8,4,'#b894ac'); box(rx+3,209,2,8,'#b894ac'); }
+    box(176,203,3,20,'#efd3af'); box(533,203,3,20,'#efd3af');
+    box(284,394,40,10,'#5d4a58'); box(284,394,40,1,'#cda28a'); box(284,403,40,1,'#cda28a');
+    for (let mx=288;mx<322;mx+=6) box(mx,397,3,4,'#8c6262');
+    plant(24,150); plant(228,34); plant(592,126); plant(156,374,.6); plant(293,376,.6);
+    plant(433,376,.6); plant(473,374,.6);
   }
   function room(withFurniture=true, lighting=null) {
     box(0,0,640,432,'#1A1218'); box(12,24,616,396,'#76636a');
-    for (let y=28;y<420;y+=28) for (let x=16;x<628;x+=28) box(x,y,26,26,'#817077');
+    for (let y=28;y<420;y+=28) for (let x=16;x<628;x+=28) tile(x,y,x+26,y+26,x,y);
     for (const rect of walls) wall(...rect);
     floor(20,194,600,38);
+    props();
     for (const [x,y,w,h] of [[140,182,44,12],[420,182,44,12],
       [180,232,44,15],[512,232,44,15],[276,408,56,12]]) {
       floor(x,y,w,h); box(x-3,y,3,h,'#8c6262'); box(x+w,y,3,h,'#8c6262');
@@ -375,18 +710,28 @@ export function createScene(ctx, avatar) {
     ctx.font='11px monospace'; ctx.fillStyle='#392b35'; ctx.fillText(text,x+4,y+11);
     return {text:agent.text,x,y,w,h,head:agent.head};
   }
-  // Wood door panel in a wall gap, or its leaf swung open into the next room.
-  function door(d, open) {
+  // Wood door panel in a wall gap; `swing` 0..1 sweeps its leaf open into the next room.
+  function door(d, amount) {
     const {x,y,w,h,swing}=d;
-    if (open) {
+    if (amount>0) {
+      const part=Math.min(1,amount), leaf=Math.max(2,Math.round((swing==='right' ? 28 : 32)*part));
       if (swing==='right') {
-        box(x+w,y,28,3,'#946b68'); box(x+w,y,28,1,'#cda28a');
-        box(x+w,y+3,28,2,'#5a4450'); box(x+w+22,y+1,2,1,'#efc68e');
+        // The panel folds towards its top hinge while the leaf swings out.
+        const rest=Math.round(h*(1-part));
+        if (rest>0) { box(x,y,w,rest,'#946b68'); box(x,y,3,rest,'#cda28a'); box(x,y+rest,w,2,'#5a4450'); }
+        box(x+w,y,leaf,3,'#946b68'); box(x+w,y,leaf,1,'#cda28a');
+        box(x+w,y+3,leaf,2,'#5a4450'); if (part>=1) box(x+w+22,y+1,2,1,'#efc68e');
+        box(x+w-1,y,2,3,'#c9c4d5');
       } else {
         // Hinged on the right edge so leaves stay clear of room labels.
-        const top=swing==='down' ? y+h : y-32;
-        box(x+w-5,top,5,32,'#946b68'); box(x+w-5,top,2,32,'#cda28a');
-        box(x+w-8,top,3,32,'#5a4450'); box(x+w-4,top+26,2,2,'#efc68e');
+        const rest=Math.round(w*(1-part)), top=swing==='down' ? y+h : y-leaf;
+        if (rest>0) {
+          box(x+w-rest,y,rest,h,'#946b68'); box(x+w-rest,y,rest,2,'#cda28a');
+          box(x+w-rest,y+h,rest,2,'#49303e');
+        }
+        box(x+w-5,top,5,leaf,'#946b68'); box(x+w-5,top,2,leaf,'#cda28a');
+        box(x+w-8,top,3,leaf,'#5a4450'); if (part>=1) box(x+w-4,top+26,2,2,'#efc68e');
+        box(x+w-6,y+(h>>1)-2,3,2,'#c9c4d5');
       }
       return;
     }
@@ -394,6 +739,7 @@ export function createScene(ctx, avatar) {
       box(x,y,w,h,'#946b68'); box(x,y,3,h,'#cda28a');
       box(x+4,y+4,5,h/2-6,'#8c6262'); box(x+4,y+h/2+2,5,h/2-6,'#8c6262');
       box(x+6,y+h/2-1,2,2,'#efc68e'); box(x+w,y,2,h,'#49303e');
+      box(x+4,y+4,1,h/2-6,'#7a5252'); box(x+4,y+h/2+2,1,h/2-6,'#7a5252'); box(x+w-1,y,1,h,'#7a5a58');
       return;
     }
     // Double doors split wide gaps; each leaf gets its own inset panel and knob.
@@ -402,18 +748,44 @@ export function createScene(ctx, avatar) {
       box(lx,y,lw,h,'#946b68'); box(lx,y,lw,2,'#cda28a');
       box(lx+4,y+3,lw/2-6,h-5,'#8c6262'); box(lx+lw/2+2,y+3,lw/2-6,h-5,'#8c6262');
       box(lx+lw/2-1,y+h/2-1,2,2,'#efc68e');
+      box(lx+4,y+3,lw/2-6,1,'#7a5252'); box(lx+lw/2+2,y+3,lw/2-6,1,'#7a5252');
+      box(lx+1,y+h-2,lw-2,1,'#7a5a58');
     }
     box(x,y+h,w,2,'#49303e');
   }
+  // The room never changes between frames, so it is painted once per lighting
+  // into a layer and blitted; contexts without a canvas draw it directly.
+  let layer = null, layerKey = null;
+  function paintRoom(withFurniture, lighting) {
+    const key = `${withFurniture}|${lighting ? Object.values(lighting).join() : ''}`;
+    if (layerKey !== key) {
+      layer = null; layerKey = key;
+      const made = createLayer();
+      if (made) {
+        createScene(made.ctx, avatar, {createLayer:() => null}).room(withFurniture, lighting);
+        layer = made.canvas;
+      }
+    }
+    if (layer) ctx.drawImage(layer, 0, 0);
+    else room(withFurniture, lighting);
+  }
   function render(state=null, {actors=true}={}) {
-    room(!state, state?.lighting);
-    const layers = desks.map(d=>({depth:d.y+106, draw:()=>workstation(d,actors?(state?.agents[d.id]):{hidden:true})}));
+    paintRoom(!state, state?.lighting);
+    const time = state?.time;
+    // Seated workers breathe while idle; typing already moves them.
+    const seated = d => {
+      const pose=state?.agents[d.id], tired=pose?.away ? null : fatigueMoment(pose?.activeSeconds,time,d.id);
+      return {blink:blinkClosed(time,d.id) || tired==='yawn', lift:pose?.working ? 0 : breathLift(time,d.id),
+        time, yawn:tired==='yawn', stretch:tired==='stretch',
+        think:d.id==='writer' && !!pose?.working && !pose.away && writerThinking(time)};
+    };
+    const layers = desks.map(d=>({depth:d.y+106, draw:()=>workstation(d,actors?(state?.agents[d.id]):{hidden:true},seated(d))}));
     if (state) {
       const poses = Object.values(state.agents ?? {});
       for (const d of doors) {
-        const open = poses.some(p => doorOpen(d, p));
-        const depth = open && d.swing==='right' ? d.y : d.y+d.h;
-        layers.push({depth, draw:()=>door(d, open)});
+        const amount = Math.max(0, ...poses.map(p => doorSwing(d, p)));
+        const depth = amount>0 && d.swing==='right' ? d.y : d.y+d.h;
+        layers.push({depth, draw:()=>door(d, amount)});
       }
     }
     if (state) layers.push(
@@ -425,6 +797,9 @@ export function createScene(ctx, avatar) {
         box(166,280,28,36,'#cda28a'); box(168,280,24,3,'#efd3af');
         box(172,264,16,16,'#9bd4cd'); box(174,262,12,3,'#f5eae2');
         box(178,284,4,6,'#49303e'); box(176,296,8,8,'#f5eae2');
+        box(166,280,2,36,'#e0bfa8'); box(192,280,2,36,'#b88e78'); box(166,314,28,2,'#946b68');
+        box(174,266,2,10,'#d6efec'); box(172,286,3,2,'#c875a1'); box(185,286,3,2,'#9bd4cd');
+        box(189,274,4,6,'#f5eae2'); box(170,306,20,1,'#a67a6e');
       }}
     );
     if (state && actors) {
@@ -432,7 +807,13 @@ export function createScene(ctx, avatar) {
         const pose = state.agents[id];
         if (pose?.away) {
           const [x,y] = pose.position.map(Math.round);
-          layers.push({depth:y+68, draw:()=>standing(x,y,Math.round(pose.stride),pose.book,id,pose.drinking)});
+          // At The Stacks a worker reads on its feet; long shifts earn a yawn.
+          const reading = pose.phase==='stacks' && !pose.moving;
+          const yawn = reading && fatigueMoment(pose.activeSeconds,time,id)==='yawn';
+          layers.push({depth:y+68, draw:()=>standing(x,y,Math.round(pose.stride),pose.book,id,pose.drinking,
+            {blink:blinkClosed(time,id) || yawn, facing:pose.facing??0, time, yawn, reading,
+              question:pose.agentState==='unknown' && reading, reaction:pose.reaction,
+              lift:!yawn && !pose.moving && ['shelf','stacks','rest','water','pause'].includes(pose.phase) ? breathLift(time,id) : 0})});
         }
       }
       layers.sort((a,b)=>a.depth-b.depth).forEach(l=>l.draw());
@@ -442,18 +823,70 @@ export function createScene(ctx, avatar) {
     layers.sort((a,b)=>a.depth-b.depth).forEach(l=>l.draw());
     return [];
   }
-  function standing(x,y,stride=0,book=false,id='scout',drinking=false) {
-    actor(x,y,desks.find(d=>d.id===id).color,id,false);
-    box(x+6,y+56,8,10-stride,'#49303e'); box(x+20,y+56,8,10+stride,'#49303e');
+  function standing(x,y,stride=0,book=false,id='scout',drinking=false,life={}) {
+    const color=desks.find(d=>d.id===id).color, carry=book||drinking;
+    // Contact shadow keeps the walker grounded on the tiles.
+    box(x+2,y+67,28,3,'#5f4e55'); box(x+5,y+70,22,1,'#5f4e55');
+    // A fresh reaction raises the left arm: thumbs-up on success, hand on head on failure.
+    const reaction = life.reaction && life.reaction.t < REACTION_SECONDS ? life.reaction : null;
+    const raise = reaction ? (reaction.state==='completed' ? 'thumb' : failedLike(reaction.state) ? 'head' : null) : null;
+    // Breathing sinks the torso a pixel over the planted legs.
+    actor(x,y+(life.lift??0),color,id,false,box,Math.round(stride*1.5),carry,{...life,raise});
+    const pants={orchestrator:'#49303e',scout:'#3b4f57',writer:'#5a4450',verifier:'#514a6a'}[id] ?? '#49303e';
+    // The planted leg is longer; the lifted one tucks its cuff and shoe up.
+    box(x+6,y+56,8,10-stride,pants); box(x+20,y+56,8,10+stride,pants);
+    box(x+12,y+56,2,10-stride,shade(pants,-.25)); box(x+20,y+56,2,10+stride,shade(pants,-.25));
+    box(x+6,y+56,1,10-stride,shade(pants,.2)); box(x+27,y+56,1,10+stride,shade(pants,.2));
+    box(x+6,y+62-stride,8,1,shade(pants,.25)); box(x+20,y+62+stride,8,1,shade(pants,.25));
     box(x+4,y+64-stride,10,4,'#241923'); box(x+20,y+64+stride,10,4,'#241923');
+    box(x+4,y+64-stride,10,1,'#3a2c38'); box(x+20,y+64+stride,10,1,'#3a2c38');
+    box(x+4,y+67-stride,10,1,'#1A1218'); box(x+20,y+67+stride,10,1,'#1A1218');
     if (drinking) {
+      box(x+27,y+28,8,8,color); box(x+27,y+28,2,8,shade(color,.16));
       box(x+26,y+24,8,5,'#efc3a1');
       box(x+23,y+18,8,10,'#f5eae2'); box(x+24,y+19,6,2,'#9bd4cd');
-      box(x+31,y+20,3,6,'#f5eae2');
+      box(x+31,y+20,3,6,'#f5eae2'); box(x+23,y+26,8,2,'#d6cbc0'); box(x+25,y+14,1,3,'#f5eae2');
     }
     if (book) {
-      box(x+26,y+38,12,16,'#efc68e'); box(x+29,y+41,6,3,'#f5eae2');
-      box(x+24,y+48,8,4,'#efc3a1');
+      // Held book bobs a pixel on each planted step.
+      const dy=Math.abs(stride)===2 ? -1 : 0;
+      box(x+26,y+38+dy,12,16,'#efc68e'); box(x+29,y+41+dy,6,3,'#f5eae2');
+      box(x+26,y+38+dy,2,16,'#cda28a'); box(x+28,y+52+dy,10,2,'#f5eae2');
+      box(x+36,y+38+dy,2,14,'#d9a96f'); box(x+30,y+46+dy,4,1,'#cda28a');
+      box(x+24,y+48+dy,8,4,'#efc3a1'); box(x+24,y+51+dy,8,1,'#d5a88e');
+      if (life.reading && Number.isFinite(life.time)) {
+        // A page lifts and turns every ~1.6s, staggered per role.
+        const turn=Math.floor(((life.time+roleIndex(id)*.5)%1.6)/.4);
+        if (turn===1) { box(x+32,y+40+dy,5,12,'#fff4d6'); box(x+31,y+40+dy,1,12,'#cda28a'); }
+        else if (turn===2) { box(x+31,y+39+dy,2,13,'#fff4d6'); box(x+29,y+41+dy,6,3,'#efc68e'); }
+        else if (turn===3) { box(x+28,y+40+dy,3,12,'#fff4d6'); box(x+31,y+40+dy,1,12,'#cda28a'); }
+      }
+    }
+    if (life.reading && id==='scout' && Number.isFinite(life.time)) {
+      // The scout sweeps a magnifying glass in the free hand while searching.
+      const cx=x-9+Math.round(Math.sin(life.time*2.4)*2), cy=y+42;
+      box(cx-4,cy-3,9,7,'#d6efec'); box(cx-3,cy-4,7,1,'#49303e'); box(cx-3,cy+4,7,1,'#49303e');
+      box(cx-5,cy-3,1,7,'#49303e'); box(cx+5,cy-3,1,7,'#49303e');
+      for (const [px,py] of [[-4,-4],[4,-4],[-4,4],[4,4]]) box(cx+px,cy+py,1,1,'#49303e');
+      if (Math.floor(life.time*3)%2) box(cx-3,cy-2,2,1,'#f5eae2');
+      box(cx+4,cy+5,2,2,'#8c6262'); box(cx+5,cy+7,2,2,'#8c6262'); box(cx+6,cy+9,2,2,'#8c6262');
+    }
+    if (reaction) reactionIcon(x+34>606 ? x-10 : x+34, y, reaction, life.time);
+    else if (life.question) questionMark(x+34>606 ? x-10 : x+34, y-2, life.time);
+  }
+  // Small status glyph beside the head: green check, red mark or rain cloud.
+  function reactionIcon(x,y,{state,t},time) {
+    const iy=y-Math.min(2,Math.floor(t*4)), beat=Number.isFinite(time) ? Math.floor(time*6)%2 : 0;
+    if (state==='completed') {
+      for (const [cx,cy] of [[0,4],[2,6],[4,4],[6,2],[8,0]]) { box(x+cx,iy+cy,2,2,GREEN); box(x+cx,iy+cy+2,2,1,'#6f9a7c'); }
+      box(x+12,iy+(beat?1:3),1,3,'#f5eae2'); box(x+11,iy+(beat?2:4),3,1,'#f5eae2');
+    } else if (state==='failed') {
+      box(x+2,iy-1+beat,5,9,'#392b35'); box(x+3,iy+beat,3,7,RED); box(x+3,iy+8+beat,3,2,RED);
+      box(x+2,iy+10+beat,5,1,'#392b35');
+    } else if (failedLike(state)) {
+      box(x,iy+2,12,4,'#c9c4d5'); box(x+2,iy,8,3,'#c9c4d5'); box(x+3,iy,3,1,'#e3deeb');
+      const fall=Number.isFinite(time) ? Math.floor(time*6) : 0;
+      for (let i=0;i<3;i++) box(x+2+i*4,iy+7+(fall+i*2)%4*2,1,2,'#9bd4cd');
     }
   }
   return {render,room,actor,standing};
@@ -464,9 +897,10 @@ export function createScene(ctx, avatar) {
 export const memoryRoute = [[134,64], [276,72], [426,78]];
 // Scout steps back through the shared lane. Depth ordering permits brief body
 // overlap, but feet clear resting workers/water before the Workshop-Stacks door.
-export const stacksRoute = [[78,302], [78,187], [426,187], [426,240], [462,240], [462,276], [526,276]];
-// Verifier steps back from desk 3 into the lane and enters The Stacks to inspect references.
-export const verifierStacksRoute = [[358,302], [358,187], [426,187], [426,240], [462,240], [462,276], [526,276]];
+export const stacksRoute = [[78,302], [78,187], [426,187], [426,240], [462,240], [462,276], [540,276]];
+// Verifier steps back from desk 3 into the lane and enters The Stacks, standing
+// at the right end of the shelf row so it never overlaps the scout.
+export const verifierStacksRoute = [[358,302], [358,187], [426,187], [426,240], [462,240], [462,276], [582,276]];
 
 // Seconds and scene coordinates, independent of SSE frequency.
 export function makeWalker(route, speed=72) {
@@ -484,6 +918,16 @@ export function makeWalker(route, speed=72) {
       distance -= length;
     }
     return [...route.at(-1)];
+  }
+  // -1/0/1: horizontal heading of the segment at `seconds` along the route.
+  function heading(seconds) {
+    let distance = Math.max(0, seconds) * speed;
+    for (let i=0; i<distances.length; i++) {
+      if (distance < distances[i] || i === distances.length-1)
+        return Math.sign(route[i+1][0]-route[i][0]);
+      distance -= distances[i];
+    }
+    return 0;
   }
   // Pure journey state: a short activity still finishes the outward trip. Renewed
   // activity reverses a return at its current position without teleporting.
@@ -506,9 +950,10 @@ export function makeWalker(route, speed=72) {
     return {
       phase, progress, away, position:position(progress), book:phase==='shelf',
       stride:away && phase!=='shelf' ? Math.sin(progress*16)*2 : 0,
+      facing:away && phase!=='shelf' ? heading(progress) * (phase==='returning' ? -1 : 1) : 0,
     };
   }
-  return {route, travelSeconds, position, step};
+  return {route, travelSeconds, position, heading, step};
 }
 // Orchestrator rounds its desk, leaves the Bridge, follows the corridor and
 // enters The Stacks to stand behind the review desk, stamp in hand.
@@ -574,7 +1019,8 @@ export function bubbleAnchor(role, pose={}) {
   if (x > 180 && x < 250 && y < 150) return [174,70,78,32];
   if (!pose.away) return role === 'scout' ? [20,318,48,32]
     : [x-20,264,100,32];
-  if (pose.phase === 'stacks' && !pose.moving) return [468,336,54,22];
+  // Scout's label sits left of the shelf-row gap, the verifier's above its head.
+  if (pose.phase === 'stacks' && !pose.moving) return role === 'verifier' ? [552,244,68,22] : [468,336,68,22];
   if (pose.phase === 'rest' && !pose.moving) return [{writer:22,scout:102,verifier:182}[role],198,78,32];
   return [Math.max(20,Math.min(520,x-34)),Math.max(26,y-38),100,32];
 }
@@ -621,8 +1067,13 @@ export function stepJourney(previous, event, delta) {
   const total = arrival ? walker.travelSeconds : walker.travelSeconds * 2 + 1.5;
   const progress = arrival ? elapsed : elapsed <= walker.travelSeconds + 1.5
     ? Math.min(elapsed, walker.travelSeconds) : total - elapsed;
+  const holding = !arrival && elapsed > walker.travelSeconds && elapsed <= walker.travelSeconds + 1.5;
   return {...journey, elapsed, done:elapsed >= total, away:elapsed < total,
-    position:walker.position(progress), stride:Math.sin(elapsed * 16) * 2,
+    position:walker.position(progress),
+    // Legs move only while travelling, not during the delivery hold.
+    stride:holding ? 0 : Math.sin(elapsed * 16) * 2,
+    facing:holding || elapsed >= total ? 0
+      : walker.heading(progress) * (!arrival && elapsed > walker.travelSeconds ? -1 : 1),
     book:!arrival, text:arrival ? 'Arriving' : resultLabels[journey.event.state] ?? 'Result received'};
 }
 
@@ -630,7 +1081,7 @@ export function stepJourney(previous, event, delta) {
 // authorize arrivals/results. Routes are never replaced with an entrance spawn.
 export function createWorkers() {
   const workers = Object.fromEntries(Object.entries(restPositions).map(([role, position]) =>
-    [role, {position:[...position], phase:'rest', queue:[], motion:null, result:null}]));
+    [role, {position:[...position], phase:'rest', queue:[], motion:null, result:null, resultT:0, reaction:null}]));
   let visitor = null;
   const start = (w, route, phase) => {
     w.motion = {route, walker:makeWalker(route), elapsed:0, from:w.phase, to:phase};
@@ -638,7 +1089,7 @@ export function createWorkers() {
   const reset = () => {
     visitor = null;
     for (const w of Object.values(workers)) {
-      w.queue = []; w.result = null;
+      w.queue = []; w.result = null; w.reaction = null;
       // Retrace only the already travelled prefix, not a shortcut through walls.
       if (w.motion) {
         const m = w.motion;
@@ -693,7 +1144,7 @@ export function createWorkers() {
           while (w.queue[0]?.type === 'arrival') w.queue.shift();
           if (w.queue[0]?.type === 'result') {
             if (!visitor) {
-              visitor = role; w.result = w.queue.shift();
+              visitor = role; w.result = w.queue.shift(); w.resultT = 0;
               start(w, delivery, 'pause');
             }
           } else if (active && (role === 'scout' || role === 'verifier')) {
@@ -707,14 +1158,22 @@ export function createWorkers() {
         w.position = m.walker.position(m.elapsed);
         if (m.elapsed >= m.walker.travelSeconds) {
           w.phase = m.to; w.motion = null;
-          if (w.phase === 'pause') w.pause = 1.5;
+          if (w.phase === 'pause') {
+            w.pause = 1.5;
+            if (['completed','failed','aborted','blocked'].includes(w.result?.state)) w.reaction = {state:w.result.state, t:0};
+          }
           if (w.phase === 'water') w.pause = 2.0;
           if (w.phase === 'rest' && visitor === role) visitor = null;
         }
       }
+      if (w.result) w.resultT += dt;
+      if (w.reaction) { w.reaction.t += dt; if (w.reaction.t >= REACTION_SECONDS) w.reaction = null; }
       const away = !!w.motion || w.phase !== 'seat';
       poses[role] = {position:[...w.position], away, moving:!!w.motion, phase:w.phase,
+        outcome:w.result && w.resultT < OUTCOME_SECONDS ? w.result.state : null,
+        reaction:w.reaction ? {...w.reaction} : null,
         stride:w.motion ? Math.sin(w.motion.elapsed*16)*2 : 0,
+        facing:w.motion ? w.motion.walker.heading(w.motion.elapsed) : 0,
         drinking:w.phase === 'water' && !w.motion && w.pause > 1e-9,
         book:w.phase === 'stacks' || !!w.result,
         text:w.phase === 'water' && !w.motion ? 'Getting water'
@@ -737,12 +1196,24 @@ export const doors = [
   {id:'workshop-stacks', x:456, y:300, w:12, h:44, swing:'right'},
   {id:'exit', x:276, y:408, w:56, h:12, swing:'up'},
 ];
-// A door is open while a walker's feet are in or just beside its gap.
+// A door is open while a walker's feet are in or just beside its gap. The
+// margin across a horizontal wall stays under the 12px lane offset, so walkers
+// passing along the Workshop lane leave the door closed.
 export function doorOpen(d, pose) {
   if (!pose?.away || !pose.position) return false;
   const fx = pose.position[0] + 16, fy = pose.position[1] + 67;
-  const [mx, my] = d.swing==='right' ? [30, 8] : [8, 16];
+  const [mx, my] = d.swing==='right' ? [30, 8] : [8, 10];
   return fx >= d.x-mx && fx <= d.x+d.w+mx && fy >= d.y-my && fy <= d.y+d.h+my;
+}
+// 0 (closed) .. 1 (fully swung): the leaf opens over the first few pixels of
+// the open zone, so it never pops. Zero exactly when doorOpen is false.
+export function doorSwing(d, pose) {
+  if (!doorOpen(d, pose)) return 0;
+  const fx = pose.position[0] + 16, fy = pose.position[1] + 67;
+  const [mx, my] = d.swing==='right' ? [30, 8] : [8, 10];
+  const depth = d.swing==='right'
+    ? Math.min(fx-(d.x-mx), d.x+d.w+mx-fx) : Math.min(fy-(d.y-my), d.y+d.h+my-fy);
+  return Math.max(0, Math.min(1, (depth+1)/7));
 }
 export const feetBox = ([x,y]) => [x+8,y+64,16,6];
 export const route = [[0,78,302],[1,78,302],[3,78,242],[6,186,242],[9,186,145],

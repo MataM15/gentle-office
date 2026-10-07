@@ -154,8 +154,23 @@ test('each office in a hub shows its own tool gestures and review trip', async (
   assert.equal(frames[0].agents.orchestrator.error, true);
   assert.equal(frames[1].agents.orchestrator.error, false);
   assert.ok(frames.every(state => ['day','evening','night'].includes(state.lighting.period)));
+  assert.ok(frames.every(state => state.time === now / 1000), 'the animation clock reaches the renderer');
   tick(3);
   assert.equal(frames[0].agents.orchestrator.error, false);
   stream.onerror(); failure.orchestrator.errorCount = 2; send(); tick(.1);
   assert.equal(frames[0].agents.orchestrator.error, false, 'reconnect is a baseline');
+  // Workers receive their delegation state and how long their oldest task has run.
+  const delegated = (id, role, state, age) => ({id, role, state, started:Date.now() - age * 1000});
+  const busy = {...office('a', {count:2, kind:null}, false),
+    agents:[delegated(1, 'writer', 'delegated', 120), delegated(2, 'writer', 'unknown', 30), delegated(3, 'scout', 'unknown', 5)]};
+  stream.onmessage({data:JSON.stringify({offices:[busy, other]})}); tick(.1);
+  const [writer, scout, verifier] = ['writer', 'scout', 'verifier'].map(role => frames[0].agents[role]);
+  assert.equal(writer.agentState, 'delegated');
+  assert.ok(writer.activeSeconds >= 119.9 && writer.activeSeconds < 125, `oldest task counts (${writer.activeSeconds})`);
+  assert.equal(scout.agentState, 'unknown');
+  assert.ok(scout.activeSeconds < 10);
+  assert.equal(verifier.agentState, undefined, 'idle workers carry no state');
+  assert.equal(verifier.activeSeconds, undefined);
+  assert.equal(frames[0].agents.orchestrator.agentState, undefined);
+  assert.equal(frames[1].agents.writer.activeSeconds, undefined, 'other offices are independent');
 });
