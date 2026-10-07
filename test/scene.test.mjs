@@ -497,9 +497,27 @@ test('verifier walks to The Stacks and back without crossing walls', () => {
     assertOutsideWalls(pose.position);
   }
   assert.equal(pose.phase, 'shelf');
-  assert.deepEqual(pose.position, [526, 276]);
+  assert.deepEqual(pose.position, verifierStacksRoute.at(-1));
   for (let t = 0; t < walker.travelSeconds + 1; t += 1 / 60) pose = walker.step(pose, false, 1 / 60);
   assert.equal(pose.phase, 'seated');
+});
+
+test('scout and verifier stand apart in The Stacks with distinct, in-scene labels', () => {
+  const scout = sceneModule.stacksRoute.at(-1), verifier = verifierStacksRoute.at(-1);
+  assert.notDeepEqual(scout, verifier);
+  assert.equal(intersects(standingBox(scout), standingBox(verifier)), false, 'standing sprites');
+  const pose = position => ({away:true, moving:false, phase:'stacks', position});
+  const a = sceneModule.bubbleAnchor('scout', pose(scout));
+  const b = sceneModule.bubbleAnchor('verifier', pose(verifier));
+  assert.equal(intersects(a, b), false, 'labels');
+  for (const [label, body, other] of [[a, scout, verifier], [b, verifier, scout]]) {
+    assert.equal(intersects(label, standingBox(body)), false, 'own body');
+    assert.equal(intersects(label, standingBox(other)), false, 'other body');
+    assert.ok(label[0] >= 20 && label[1] >= 24 && label[0]+label[2] <= 620 && label[1]+label[3] <= 408);
+  }
+  const [fx, fy, fw, fh] = feetBox(verifier);
+  assert.ok(fx > 468 && fx+fw < 620 && fy+fh < 408, 'feet inside the room');
+  assertOutsideWalls(verifier);
 });
 
 test('water visits clear obstacles, drink for two seconds and discard delivered results', () => {
@@ -631,4 +649,114 @@ test('door leaves swing gradually as feet enter the gap, fully open at its centr
     const pose = {away:true, position:[door.x + door.w/2 - 16, fy - 67]};
     if (door.swing !== 'right') assert.equal(sceneModule.doorSwing(door, pose) > 0, doorOpen(door, pose), `${door.id} at ${fy}`);
   }
+});
+
+test('the static room is cached in an offscreen layer, identical to direct drawing', () => {
+  const recorder = (extra = {}) => {
+    const ops = [];
+    return {ops, fillStyle:'', font:'', fillRect(x, y, w, h) { ops.push([this.fillStyle, x, y, w, h]); },
+      fillText(t, x, y) { ops.push(['text', this.font, t, x, y]); }, ...extra};
+  };
+  const lighting = sceneModule.officeLighting({getHours:() => 12});
+  const state = {agents:{orchestrator:{}}, lighting};
+  const direct = recorder();
+  createScene(direct, 'avatar').room(false, lighting);
+  const drawn = [], layerCtx = recorder(), layers = [];
+  const main = recorder({canvas:{}, drawImage(...args) { drawn.push(args); }});
+  const renderer = createScene(main, 'avatar', {createLayer:() => { layers.push(1); return {canvas:'layer', ctx:layerCtx}; }});
+  renderer.render(state);
+  assert.deepEqual(layerCtx.ops, direct.ops, 'layer holds exactly the direct room');
+  const first = main.ops.length;
+  assert.ok(first < 1600, `main canvas skips the static room (${first} ops)`);
+  assert.deepEqual(drawn[0].slice(0, 3), ['layer', 0, 0]);
+  renderer.render(state);
+  assert.equal(layerCtx.ops.length, direct.ops.length, 'layer is not redrawn');
+  assert.equal(layers.length, 1);
+  assert.equal(main.ops.length, first * 2, 'a cached frame costs the same each time');
+  renderer.render({...state, lighting:sceneModule.officeLighting({getHours:() => 23})});
+  assert.equal(layers.length, 2, 'lighting change rebuilds the layer');
+  // Without a canvas, drawing stays direct.
+  const plain = recorder();
+  createScene(plain, 'avatar').render(state);
+  assert.ok(plain.ops.length > direct.ops.length);
+});
+
+test('blink windows are short, periodic and desynced per role', () => {
+  const firsts = [];
+  for (const {id} of desks) {
+    let closed = 0, runs = 0, run = 0, longest = 0, first = null, prev = false;
+    for (let t = 0; t < 60; t += 0.01) {
+      const now = sceneModule.blinkClosed(t, id);
+      if (now) { closed++; run++; first ??= t; } else { longest = Math.max(longest, run); run = 0; }
+      if (now && !prev) runs++;
+      prev = now;
+    }
+    assert.ok(closed / 6000 > 0.01 && closed / 6000 < 0.06, `${id} blinks briefly`);
+    assert.ok(longest <= 20, `${id} eyes never stay closed`);
+    assert.ok(runs >= 8 && runs <= 20, `${id} blinks every few seconds`);
+    firsts.push(first);
+  }
+  assert.equal(new Set(firsts.map(t => t.toFixed(1))).size, desks.length, 'roles blink out of step');
+  for (const {id} of desks) assert.equal(sceneModule.blinkClosed(undefined, id), false);
+});
+
+test('breathing lifts by one pixel on a slow cycle and is absent without a clock', () => {
+  for (const {id} of desks) {
+    const seen = new Set();
+    for (let t = 0; t < 8; t += 0.05) seen.add(sceneModule.breathLift(t, id));
+    assert.deepEqual([...seen].sort(), [0, 1]);
+    assert.equal(sceneModule.breathLift(undefined, id), 0);
+  }
+});
+
+test('walkers face their horizontal travel direction, front when vertical or idle', () => {
+  const walker = makeWalker([[0,0],[72,0],[72,72],[0,72]]);
+  const facing = seconds => walker.step({phase:'outbound', progress:seconds}, true, 0).facing;
+  assert.equal(facing(.5), 1);
+  assert.equal(facing(1.5), 0);
+  assert.equal(facing(2.5), -1);
+  const back = progress => walker.step({phase:'returning', progress}, false, 0).facing;
+  assert.equal(back(2.5), 1, 'retracing flips direction');
+  assert.equal(back(.5), -1);
+  assert.equal(walker.step({phase:'shelf', progress:walker.travelSeconds}, true, 0).facing, 0);
+  assert.equal(walker.step(null, false, 0).facing, 0);
+});
+
+test('workers and journeys report facing along their route', () => {
+  const workers = createWorkers();
+  workers.observe([{role:'writer', type:'arrival'}]);
+  const seen = new Set();
+  for (let i = 0; i < 400; i++) seen.add(workers.step(1/30, ['writer']).writer.facing);
+  assert.ok(seen.has(0) && seen.has(1), `facings ${[...seen]}`);
+  const event = {role:'writer', type:'result', state:'completed'};
+  const dirs = new Set();
+  let journey = null;
+  for (let i = 0; i < 600; i++) { journey = stepJourney(journey, event, 1/30); dirs.add(journey.facing); }
+  assert.ok(dirs.has(-1) && dirs.has(1), 'delivery and return face opposite ways');
+});
+
+test('eyes close during a blink and sprites look towards their travel direction', () => {
+  const ops = (agent, time) => {
+    const rects = [];
+    const ctx = {fillStyle:'', font:'', fillRect(x, y, w, h) { rects.push(`${this.fillStyle} ${x} ${y} ${w} ${h}`); }, fillText() {}};
+    createScene(ctx, 'avatar').render({agents:{orchestrator:{}, scout:agent, writer:{}, verifier:{}}, time});
+    return rects;
+  };
+  // Two instants that differ only in the scout's blink.
+  const times = Array.from({length:3000}, (_, i) => i / 100);
+  const others = t => desks.map(d => `${d.id === 'scout' ? '' : blinkOf(t, d.id)}${breathOf(t, d.id)}`).join();
+  const blinkOf = sceneModule.blinkClosed, breathOf = sceneModule.breathLift;
+  const closedAt = times.find(t => blinkOf(t, 'scout'));
+  const openAt = times.find(t => !blinkOf(t, 'scout') && others(t) === others(closedAt));
+  assert.ok(openAt !== undefined);
+  const openOps = ops({}, openAt);
+  const lids = ops({}, closedAt).filter(r => !openOps.includes(r));
+  assert.ok(lids.length >= 2 && lids.length <= 12, `closed eyes repaint a few rects (${lids.length})`);
+  assert.deepEqual(ops({}, undefined).length > 0, true, 'no clock keeps working');
+  const away = facing => ops({away:true, position:[100,100], stride:0, facing}, undefined);
+  const [left, front, right] = [-1, 0, 1].map(away);
+  assert.notDeepEqual(left, right);
+  assert.notDeepEqual(left, front);
+  assert.notDeepEqual(right, front);
+  assert.ok(Math.abs(left.length - right.length) <= 4);
 });

@@ -154,6 +154,7 @@ test('each office in a hub shows its own tool gestures and review trip', async (
   assert.equal(frames[0].agents.orchestrator.error, true);
   assert.equal(frames[1].agents.orchestrator.error, false);
   assert.ok(frames.every(state => ['day','evening','night'].includes(state.lighting.period)));
+  assert.ok(frames.every(state => state.time === now / 1000), 'the animation clock reaches the renderer');
   tick(3);
   assert.equal(frames[0].agents.orchestrator.error, false);
   stream.onerror(); failure.orchestrator.errorCount = 2; send(); tick(.1);

@@ -102,7 +102,7 @@ function draw(now, delta) {
     n.bubble.style.minHeight = `${height / 432 * 100}%`;
     n.bubble.style.borderColor = d.color;
   });
-  renderer.render({agents, review, lighting:officeLighting()});
+  renderer.render({agents, review, lighting:officeLighting(), time:now / 1000});
 }
 return {update, draw, resize, disconnect() { lifecycle = null; errorFeedback.reset(); gestures.disconnect(); }, destroy() { cell.remove(); }};
 }

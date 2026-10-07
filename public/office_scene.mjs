@@ -27,6 +27,20 @@ function shade(hex, amount) {
 }
 export const frameCount = 84;
 
+// Idle life, driven by an optional clock in seconds. Without one nothing moves.
+const roleIndex = id => Math.max(0, desks.findIndex(d => d.id === id));
+// Eyes shut for ~0.16s every 4-7s; each role has its own period and offset.
+export function blinkClosed(time, id) {
+  if (!Number.isFinite(time)) return false;
+  const i = roleIndex(id), period = 4.1 + i * .8;
+  return (time + i * 1.7) % period < .16;
+}
+// One-pixel chest rise on a ~3.4s cycle, out of step between roles.
+export function breathLift(time, id) {
+  if (!Number.isFinite(time)) return 0;
+  return Math.sin((time / 3.4 + roleIndex(id) * .27) * Math.PI * 2) > 0 ? 1 : 0;
+}
+
 // Local browser time; no server timezone or tint over actors/UI.
 export function officeLighting(date = new Date()) {
   const hour = date.getHours();
@@ -35,7 +49,19 @@ export function officeLighting(date = new Date()) {
     : {period:'night', sky:'#45465f', reflection:'#9691ac', lamp:'#fff4d6'};
 }
 
-export function createScene(ctx, avatar) {
+// Offscreen 640x432 layer for the static room; null when the context has no real canvas.
+const defaultLayer = ctx => () => {
+  const canvas = ctx.canvas;
+  if (!canvas || typeof ctx.drawImage !== 'function') return null;
+  const layer = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(640,432)
+    : canvas.ownerDocument?.createElement?.('canvas');
+  const layerCtx = layer?.getContext?.('2d');
+  if (!layerCtx) return null;
+  layer.width = 640; layer.height = 432;
+  layerCtx.imageSmoothingEnabled = false;
+  return {canvas:layer, ctx:layerCtx};
+};
+export function createScene(ctx, avatar, {createLayer=defaultLayer(ctx)}={}) {
   const box = (x,y,w,h,color) => { ctx.fillStyle = color; ctx.fillRect(x,y,w,h); };
   // One lit plank-tile: alternating tone, top highlight, bottom shade, rare scuff.
   function tile(left,top,right,bottom,tx,ty) {
@@ -161,8 +187,10 @@ export function createScene(ctx, avatar) {
   }
   // `arm` is the walking swing in pixels (positive: left hand forward/down);
   // `carry` keeps the right arm still because it holds a book or cup.
-  function actor(x,y,color,id,drawChair=true,paint=box,arm=0,carry=false) {
-    if (drawChair) chair(x,y);
+  function actor(x,y,color,id,drawChair=true,paint=box,arm=0,carry=false,life={}) {
+    const {blink=false, facing=0, lift=0} = life;
+    // Breathing lowers the body, never the chair it sits in.
+    if (drawChair) chair(x,y-lift);
     // A separate paint function lets walking reuse every head/outfit pixel.
     const box = paint, walking = !drawChair;
     const dark = shade(color,-.16), light = shade(color,.16);
@@ -185,7 +213,16 @@ export function createScene(ctx, avatar) {
         if (!carry) { box(x+30,y+54+aR,5,4,'#e4a780'); box(x+30,y+51+aR,5,3,dark); }
       }
       // The pixel head is the default; the portrait crop remains as an explicit option.
-      if (!avatar?.portraitHead) { head(x,y-8,box); return; }
+      if (!avatar?.portraitHead) {
+        head(x,y-8,box);
+        // Eyes sit on head row 25: lids when blinking, iris shifted towards travel.
+        if (blink) for (const ex of [16,23]) box(x+ex,y+17,3,1,headPalette.h);
+        else if (facing) for (const ex of [16,23]) {
+          const eye = facing>0 ? 'WHB' : 'BHW';
+          for (let i=0;i<3;i++) box(x+ex+i,y+17,1,1,headPalette[eye[i]]);
+        }
+        return;
+      }
       const silhouette = [
         [28,7],[38,7],[38,8],[43,8],[43,11],[45,11],[45,16],[46,16],
         [46,24],[44,24],[44,26],[47,26],[47,37],[45,37],[45,40],[43,40],
@@ -261,12 +298,23 @@ export function createScene(ctx, avatar) {
       box(x+10,y-4,1,5,'#e3deeb'); box(x+16,y-3,1,4,'#b0aac3'); box(x+4,y+2,1,5,'#b0aac3');
       box(x+24,y+6,2,10,'#c9c4d5'); box(x+29,y+3,1,17,'#7d7894'); box(x+29,y+19,3,2,'#c875a1');
     }
+    if (blink || facing) {
+      // Repaint the eyes over the base face: lids when blinking, otherwise
+      // pupils and nose nudged towards the walking direction.
+      for (const ex of [10,22]) box(x+ex,y+15,2,3,'#efc3a1');
+      if (blink) for (const ex of [10,22]) box(x+ex,y+16,2,1,'#623f43');
+      else {
+        for (const ex of [10,22]) { box(x+ex+facing,y+15,2,3,'#1A1218'); box(x+ex+facing,y+15,1,1,'#f5eae2'); }
+        box(x+16,y+17,3,4,'#efc3a1');
+        box(x+16+facing*2,y+18,3,3,'#ad796b'); box(x+17+facing*2,y+17,1,2,'#f5d9bc');
+      }
+    }
   }
-  function workstation(d, pose) {
+  function workstation(d, pose, life={}) {
     const {x,y}=d;
     box(x+4,y+102,104,12,'#392b35');
     if (pose?.away || pose?.hidden) chair(x+38,y+8);
-    else actor(x+38,y+8+(pose?.bob??0),d.color,d.id);
+    else actor(x+38,y+8+(pose?.bob??0)+(life.lift??0),d.color,d.id,true,box,0,false,life);
     box(x+8,y+84,8,22,'#8c6262'); box(x+92,y+84,8,22,'#8c6262');
     box(x,y+70,108,20,'#946b68'); box(x,y+58,108,24,'#cda28a');
     box(x,y+58,108,4,'#efd3af'); box(x+34,y+64,40,6,'#f5eae2');
@@ -570,9 +618,29 @@ export function createScene(ctx, avatar) {
     }
     box(x,y+h,w,2,'#49303e');
   }
+  // The room never changes between frames, so it is painted once per lighting
+  // into a layer and blitted; contexts without a canvas draw it directly.
+  let layer = null, layerKey = null;
+  function paintRoom(withFurniture, lighting) {
+    const key = `${withFurniture}|${lighting ? Object.values(lighting).join() : ''}`;
+    if (layerKey !== key) {
+      layer = null; layerKey = key;
+      const made = createLayer();
+      if (made) {
+        createScene(made.ctx, avatar, {createLayer:() => null}).room(withFurniture, lighting);
+        layer = made.canvas;
+      }
+    }
+    if (layer) ctx.drawImage(layer, 0, 0);
+    else room(withFurniture, lighting);
+  }
   function render(state=null, {actors=true}={}) {
-    room(!state, state?.lighting);
-    const layers = desks.map(d=>({depth:d.y+106, draw:()=>workstation(d,actors?(state?.agents[d.id]):{hidden:true})}));
+    paintRoom(!state, state?.lighting);
+    const time = state?.time;
+    // Seated workers breathe while idle; typing already moves them.
+    const seated = d => { const pose=state?.agents[d.id]; return {blink:blinkClosed(time,d.id),
+      lift:pose?.working ? 0 : breathLift(time,d.id)}; };
+    const layers = desks.map(d=>({depth:d.y+106, draw:()=>workstation(d,actors?(state?.agents[d.id]):{hidden:true},seated(d))}));
     if (state) {
       const poses = Object.values(state.agents ?? {});
       for (const d of doors) {
@@ -600,7 +668,8 @@ export function createScene(ctx, avatar) {
         const pose = state.agents[id];
         if (pose?.away) {
           const [x,y] = pose.position.map(Math.round);
-          layers.push({depth:y+68, draw:()=>standing(x,y,Math.round(pose.stride),pose.book,id,pose.drinking)});
+          layers.push({depth:y+68, draw:()=>standing(x,y,Math.round(pose.stride),pose.book,id,pose.drinking,
+            {blink:blinkClosed(time,id), facing:pose.facing??0, lift:!pose.moving && ['shelf','stacks','rest','water','pause'].includes(pose.phase) ? breathLift(time,id) : 0})});
         }
       }
       layers.sort((a,b)=>a.depth-b.depth).forEach(l=>l.draw());
@@ -610,11 +679,12 @@ export function createScene(ctx, avatar) {
     layers.sort((a,b)=>a.depth-b.depth).forEach(l=>l.draw());
     return [];
   }
-  function standing(x,y,stride=0,book=false,id='scout',drinking=false) {
+  function standing(x,y,stride=0,book=false,id='scout',drinking=false,life={}) {
     const color=desks.find(d=>d.id===id).color, carry=book||drinking;
     // Contact shadow keeps the walker grounded on the tiles.
     box(x+2,y+67,28,3,'#5f4e55'); box(x+5,y+70,22,1,'#5f4e55');
-    actor(x,y,color,id,false,box,Math.round(stride*1.5),carry);
+    // Breathing sinks the torso a pixel over the planted legs.
+    actor(x,y+(life.lift??0),color,id,false,box,Math.round(stride*1.5),carry,life);
     const pants={orchestrator:'#49303e',scout:'#3b4f57',writer:'#5a4450',verifier:'#514a6a'}[id] ?? '#49303e';
     // The planted leg is longer; the lifted one tucks its cuff and shoe up.
     box(x+6,y+56,8,10-stride,pants); box(x+20,y+56,8,10+stride,pants);
@@ -647,9 +717,10 @@ export function createScene(ctx, avatar) {
 export const memoryRoute = [[134,64], [276,72], [426,78]];
 // Scout steps back through the shared lane. Depth ordering permits brief body
 // overlap, but feet clear resting workers/water before the Workshop-Stacks door.
-export const stacksRoute = [[78,302], [78,187], [426,187], [426,240], [462,240], [462,276], [526,276]];
-// Verifier steps back from desk 3 into the lane and enters The Stacks to inspect references.
-export const verifierStacksRoute = [[358,302], [358,187], [426,187], [426,240], [462,240], [462,276], [526,276]];
+export const stacksRoute = [[78,302], [78,187], [426,187], [426,240], [462,240], [462,276], [540,276]];
+// Verifier steps back from desk 3 into the lane and enters The Stacks, standing
+// at the right end of the shelf row so it never overlaps the scout.
+export const verifierStacksRoute = [[358,302], [358,187], [426,187], [426,240], [462,240], [462,276], [582,276]];
 
 // Seconds and scene coordinates, independent of SSE frequency.
 export function makeWalker(route, speed=72) {
@@ -667,6 +738,16 @@ export function makeWalker(route, speed=72) {
       distance -= length;
     }
     return [...route.at(-1)];
+  }
+  // -1/0/1: horizontal heading of the segment at `seconds` along the route.
+  function heading(seconds) {
+    let distance = Math.max(0, seconds) * speed;
+    for (let i=0; i<distances.length; i++) {
+      if (distance < distances[i] || i === distances.length-1)
+        return Math.sign(route[i+1][0]-route[i][0]);
+      distance -= distances[i];
+    }
+    return 0;
   }
   // Pure journey state: a short activity still finishes the outward trip. Renewed
   // activity reverses a return at its current position without teleporting.
@@ -689,9 +770,10 @@ export function makeWalker(route, speed=72) {
     return {
       phase, progress, away, position:position(progress), book:phase==='shelf',
       stride:away && phase!=='shelf' ? Math.sin(progress*16)*2 : 0,
+      facing:away && phase!=='shelf' ? heading(progress) * (phase==='returning' ? -1 : 1) : 0,
     };
   }
-  return {route, travelSeconds, position, step};
+  return {route, travelSeconds, position, heading, step};
 }
 // Orchestrator rounds its desk, leaves the Bridge, follows the corridor and
 // enters The Stacks to stand behind the review desk, stamp in hand.
@@ -757,7 +839,8 @@ export function bubbleAnchor(role, pose={}) {
   if (x > 180 && x < 250 && y < 150) return [174,70,78,32];
   if (!pose.away) return role === 'scout' ? [20,318,48,32]
     : [x-20,264,100,32];
-  if (pose.phase === 'stacks' && !pose.moving) return [468,336,54,22];
+  // Scout's label sits left of the shelf-row gap, the verifier's above its head.
+  if (pose.phase === 'stacks' && !pose.moving) return role === 'verifier' ? [552,244,68,22] : [468,336,68,22];
   if (pose.phase === 'rest' && !pose.moving) return [{writer:22,scout:102,verifier:182}[role],198,78,32];
   return [Math.max(20,Math.min(520,x-34)),Math.max(26,y-38),100,32];
 }
@@ -809,6 +892,8 @@ export function stepJourney(previous, event, delta) {
     position:walker.position(progress),
     // Legs move only while travelling, not during the delivery hold.
     stride:holding ? 0 : Math.sin(elapsed * 16) * 2,
+    facing:holding || elapsed >= total ? 0
+      : walker.heading(progress) * (!arrival && elapsed > walker.travelSeconds ? -1 : 1),
     book:!arrival, text:arrival ? 'Arriving' : resultLabels[journey.event.state] ?? 'Result received'};
 }
 
@@ -901,6 +986,7 @@ export function createWorkers() {
       const away = !!w.motion || w.phase !== 'seat';
       poses[role] = {position:[...w.position], away, moving:!!w.motion, phase:w.phase,
         stride:w.motion ? Math.sin(w.motion.elapsed*16)*2 : 0,
+        facing:w.motion ? w.motion.walker.heading(w.motion.elapsed) : 0,
         drinking:w.phase === 'water' && !w.motion && w.pause > 1e-9,
         book:w.phase === 'stacks' || !!w.result,
         text:w.phase === 'water' && !w.motion ? 'Getting water'
