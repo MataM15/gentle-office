@@ -78,7 +78,7 @@ try {
     await sleep(100);
     await evaluate('window.__advance(0)');
     const geometry=await evaluate(`(()=>{
-      const scene=document.querySelector('#scene').getBoundingClientRect(), scale=scene.width/640;
+      const scene=document.querySelector('.scene').getBoundingClientRect(), scale=scene.width/640;
       return {scale,bubbles:[...document.querySelectorAll('.bubble')].map(el=>{
         const b=el.getBoundingClientRect(); return {text:el.textContent,visible:getComputedStyle(el).display!=='none',position:JSON.parse(el.dataset.position),phase:el.dataset.phase,away:el.dataset.away==='true',moving:el.dataset.moving==='true',box:[(b.x-scene.x)/scale,(b.y-scene.y)/scale,b.width/scale,b.height/scale],sizes:[el.scrollWidth,el.clientWidth,el.scrollHeight,el.clientHeight],overflow:el.scrollHeight>el.clientHeight || el.scrollWidth>el.clientWidth,font:getComputedStyle(el).font};
       })};
@@ -123,13 +123,13 @@ try {
   await capture('working-1x',1040,700);
   await appendFile(fixture,message('toolResult',{toolCallId:'synthetic-call',details:{status:'running'}}));
   await sleep(200); await evaluate('__advance(1)');
-  assert.ok((await evaluate(`document.querySelector('#bubbles').textContent`)).includes('Unconfirmed'));
+  assert.ok((await evaluate(`document.querySelector('.bubbles').textContent`)).includes('Unconfirmed'));
   await capture('unknown-compact',664,484,true);
   assert.deepEqual(reports.at(-1).bubbles[2].position,[218,302],'unknown Writer remains at desk');
   await capture('unknown-2x',1700,1000);
   await appendFile(fixture,message('toolResult',{toolCallId:'synthetic-call',details:{status:'failed'}}));
   await sleep(200); await evaluate('__advance(48)');
-  assert.ok((await evaluate(`document.querySelector('#bubbles').textContent`)).includes('Error received'));
+  assert.ok((await evaluate(`document.querySelector('.bubbles').textContent`)).includes('Error received'));
   await capture('delivery-1x',1040,700);
   assert.deepEqual(reports.at(-1).bubbles[2].position,[210,108],'delivery at visitor, not remote board');
   await capture('delivery-2x',1700,1000);
@@ -168,7 +168,7 @@ try {
     // viewport in that same genuine PiP target, without claiming OS sizing proof.
     await send('Emulation.setDeviceMetricsOverride',{width:664,height:484,deviceScaleFactor:1,mobile:false},pipSession);
     await sleep(150);
-    const measured=await send('Runtime.evaluate',{expression:`(()=>{const scene=document.querySelector('#scene').getBoundingClientRect();return {width:innerWidth,height:innerHeight,sceneWidth:scene.width,bubbles:[...document.querySelectorAll('.bubble')].map(el=>{const b=el.getBoundingClientRect();return {text:el.textContent,box:[b.x-scene.x,b.y-scene.y,b.width,b.height]};})};})()`,returnByValue:true},pipSession);
+    const measured=await send('Runtime.evaluate',{expression:`(()=>{const scene=document.querySelector('.scene').getBoundingClientRect();return {width:innerWidth,height:innerHeight,sceneWidth:scene.width,bubbles:[...document.querySelectorAll('.bubble')].map(el=>{const b=el.getBoundingClientRect();return {text:el.textContent,box:[b.x-scene.x,b.y-scene.y,b.width,b.height]};})};})()`,returnByValue:true},pipSession);
     assert.ok(!measured.exceptionDetails,'PiP contains the actual reparented office');
     const geometry=measured.result.value;
     assert.equal(geometry.sceneWidth,640);
