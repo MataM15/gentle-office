@@ -212,9 +212,17 @@ canvas {
 #empty[hidden] { display: none; }
 /* Narrow windows stack everything; lay contributors out in a compact row. */
 @media (max-width: 959px) {
+  /* With several offices the stacked board sits beside the badge, not above it, so the grid keeps its height. */
+  #office.multiple:not(.room-first) #side {
+    grid-template-columns: minmax(0, 1fr) 168px;
+    align-items: center;
+  }
   .recognition ol {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
     gap: 4px 12px;
   }
+}
+@media (max-width: 959px) {
+  #office.multiple .built-with { width: 168px; }
 }
