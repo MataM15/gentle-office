@@ -586,3 +586,49 @@ test('renderer paints a raised cup and a small monitor warning only when request
   calls.length = 0; renderer.render({agents});
   assert.equal(calls.some(c => c.toString() === warning), false);
 });
+
+test('arms swing opposite to the legs while walking and hang level when still', () => {
+  const hands = stride => {
+    const rects = [];
+    const ctx = {fillRect(x,y,w,h) { rects.push([x,y,w,h,this.fillStyle]); }, fillText() {}};
+    createScene(ctx).standing(100,100,stride,false,'scout',false);
+    const skin = rects.filter(([,,w,h,c]) => c === '#efc3a1' && w === 6 && h === 4);
+    const feet = rects.filter(([,,w,h,c]) => c === '#241923' && w === 10 && h === 4);
+    assert.equal(skin.length, 2);
+    assert.equal(feet.length, 2);
+    return {hand:skin[0][1]-skin[1][1], foot:feet[0][1]-feet[1][1]};
+  };
+  assert.equal(hands(0).hand, 0);
+  for (const stride of [2, -2, 1, -1]) {
+    const {hand, foot} = hands(stride);
+    assert.ok(hand !== 0 && Math.sign(hand) === -Math.sign(foot), `stride ${stride}`);
+  }
+});
+
+test('a visitor holding at the delivery spot stands still instead of marching in place', () => {
+  const event = {role:'writer', type:'result', state:'completed'};
+  const travel = makeWalker(lifecycleRoute('writer', 'result')).travelSeconds;
+  const moving = stepJourney(null, event, travel / 2);
+  const holding = stepJourney(null, event, travel + .75);
+  assert.notEqual(moving.stride, 0);
+  assert.equal(holding.stride, 0);
+  assert.equal(stepJourney(null, event, travel * 2 + 1.2).stride !== 0, true);
+});
+
+test('door leaves swing gradually as feet enter the gap, fully open at its centre', () => {
+  const d = doors.find(x => x.id === 'workshop');
+  const at = fy => sceneModule.doorSwing(d, {away:true, position:[d.x+d.w/2-16, fy-67]});
+  const mid = d.y + d.h / 2;
+  assert.equal(at(mid), 1);
+  assert.equal(at(d.y - 20), 0);
+  const edge = at(d.y - 9);
+  assert.ok(edge > 0 && edge < 1, `ajar at the margin edge: ${edge}`);
+  assert.ok(at(d.y - 5) > edge);
+  const right = doors.find(x => x.id === 'workshop-stacks');
+  assert.equal(sceneModule.doorSwing(right, {away:true, position:[right.x+right.w/2-16, right.y+right.h/2-67]}), 1);
+  assert.equal(sceneModule.doorSwing(right, {away:false, position:[right.x, right.y]}), 0);
+  for (const door of doors) for (let fy = door.y - 14; fy <= door.y + door.h + 14; fy++) {
+    const pose = {away:true, position:[door.x + door.w/2 - 16, fy - 67]};
+    if (door.swing !== 'right') assert.equal(sceneModule.doorSwing(door, pose) > 0, doorOpen(door, pose), `${door.id} at ${fy}`);
+  }
+});
