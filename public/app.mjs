@@ -128,7 +128,7 @@ stream.onerror = () => { connected = false; for (const instance of instances.val
 function resize() {
   const win = office.ownerDocument.defaultView;
   const count = instances.size;
-  const sideHeight = count === 1 && win.innerWidth < 960 ? office.querySelector('#side').offsetHeight + 12 : 0;
+  const sideHeight = count > 0 && win.innerWidth < 960 ? office.querySelector('#side').offsetHeight + 12 : 0;
   const height = win.innerHeight - grid.getBoundingClientRect().top - sideHeight - 12;
   const layout = officeLayout(count, grid.clientWidth || win.innerWidth, height);
   office.classList.toggle('multiple', count > 1);

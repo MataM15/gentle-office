@@ -202,8 +202,11 @@ canvas {
 #offices { display: grid; gap: 12px; min-width: 0; }
 .office-cell { min-width: 0; }
 .office-title { display: none; font-size: 13px; margin: 0 0 8px; overflow-wrap: anywhere; }
-#office.multiple, #office.empty { grid-template-columns: minmax(0, 1fr); }
-#office.multiple #side, #office.empty #side { display: none; }
+#office.empty { grid-template-columns: minmax(0, 1fr); }
+#office.empty #side { display: none; }
+@media (min-width: 960px) {
+  #office.multiple:not(.room-first) { grid-template-columns: minmax(0, 1fr) minmax(260px, 300px); }
+}
 #office.multiple .office-title { display: block; }
 #empty { text-align: center; }
 #empty[hidden] { display: none; }
