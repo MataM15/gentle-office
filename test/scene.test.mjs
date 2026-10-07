@@ -760,3 +760,199 @@ test('eyes close during a blink and sprites look towards their travel direction'
   assert.notDeepEqual(right, front);
   assert.ok(Math.abs(left.length - right.length) <= 4);
 });
+
+// ---- Role- and state-driven worker animation ----
+const GREEN = '#8fbf94', RED = '#d85a5a', AMBER = '#efc68e';
+function paint(agents, time, {actors = true} = {}) {
+  const calls = [];
+  const ctx = {fillRect(x, y, w, h) { calls.push([x, y, w, h, this.fillStyle]); }, fillText() {}};
+  const full = Object.fromEntries(desks.map(d => [d.id, {working:false, hand:0, bob:0, phase:0, ...(agents[d.id]?.away ? {position:[300, 187]} : {}), ...agents[d.id]}]));
+  createScene(ctx, 'avatar').render({agents:full, time}, {actors});
+  return calls;
+}
+const within = (calls, region) => calls.filter(([x, y, w, h]) => intersects([x, y, w, h], region));
+const colorsIn = (calls, region) => new Set(within(calls, region).map(c => c[4]));
+const deskOf = id => desks.find(d => d.id === id);
+const screenOf = id => { const {x, y} = deskOf(id); return [x + 34, y + 72, 40, 14]; };
+const has = (calls, rect, color) => calls.some(c => c.join() === [...rect, color].join());
+const working = (extra = {}) => ({working:true, hand:1, bob:0, phase:1, ...extra});
+
+test('fatigue starts only after the documented threshold and is deterministic', () => {
+  assert.equal(sceneModule.FATIGUE_AFTER_SECONDS, 90);
+  const moments = (seconds, id = 'writer') => {
+    const seen = new Set();
+    for (let t = 0; t < 60; t += .1) seen.add(sceneModule.fatigueMoment(seconds, t, id));
+    return seen;
+  };
+  assert.deepEqual([...moments(89.9)], [null], 'fresh workers never look tired');
+  assert.deepEqual([...moments(undefined)], [null]);
+  assert.deepEqual([...moments(120)].sort(), [null, 'stretch', 'yawn']);
+  assert.equal(sceneModule.fatigueMoment(120, undefined, 'writer'), null, 'no clock, no motion');
+  assert.equal(sceneModule.fatigueMoment(120, 7.3, 'scout'), sceneModule.fatigueMoment(120, 7.3, 'scout'));
+  const offsets = ['scout', 'writer', 'verifier'].map(id => [...Array(180)].map((_, i) => sceneModule.fatigueMoment(120, i / 3, id)).join());
+  assert.equal(new Set(offsets).size, 3, 'roles are out of step');
+});
+
+test('a steaming coffee mug appears on the desk only after the fatigue threshold', () => {
+  for (const id of ['scout', 'writer', 'verifier']) {
+    const {x, y} = deskOf(id), region = [x + 22, y + 40, 8, 17];
+    const bare = within(paint({[id]:working()}, 3.1), region);
+    const fresh = paint({[id]:working({activeSeconds:60})}, 3.1), tired = paint({[id]:working({activeSeconds:120})}, 3.1);
+    assert.deepEqual(within(fresh, region), bare, `${id} has no mug yet`);
+    assert.ok(within(tired, region).length > bare.length, `${id} brews coffee`);
+    const later = paint({[id]:working({activeSeconds:120})}, 3.6);
+    assert.notDeepEqual(within(later, [x + 22, y + 40, 8, 12]), within(tired, [x + 22, y + 40, 8, 12]), 'steam drifts');
+  }
+});
+
+test('tired seated workers yawn with closed eyes and stretch with raised arms', () => {
+  const find = kind => { for (let t = 0; t < 60; t += .1) if (sceneModule.fatigueMoment(120, t, 'writer') === kind) return t; };
+  const [yawnAt, stretchAt, calmAt] = [find('yawn'), find('stretch'), find(null)];
+  const mouth = [230, 325, 8, 6];
+  const raised = calls => calls.some(([x, y, w, h, c]) => c === '#efc3a1' && y === 303 && h === 7 && w === 8 && x < 213);
+  const tired = t => paint({writer:working({activeSeconds:120})}, t), rested = t => paint({writer:working({activeSeconds:60})}, t);
+  assert.ok(has(tired(yawnAt), mouth, '#392b35'), 'open mouth');
+  assert.equal(has(rested(yawnAt), mouth, '#392b35'), false);
+  assert.ok(raised(tired(stretchAt)), 'hands reach up');
+  assert.equal(raised(rested(stretchAt)), false);
+  assert.equal(raised(tired(calmAt)) || has(tired(calmAt), mouth, '#392b35'), false);
+});
+
+test('the writer monitor scrolls code and pauses to think, distinct from the orchestrator', () => {
+  const region = screenOf('writer');
+  const a = paint({writer:working()}, 1.0), b = paint({writer:working()}, 1.5);
+  assert.ok(colorsIn(a, region).has('#c875a1'), 'keywords are highlighted');
+  assert.notDeepEqual(within(a, region), within(b, region), 'code scrolls');
+  assert.equal(colorsIn(paint({orchestrator:working()}, 1), screenOf('orchestrator')).has('#c875a1'), false);
+  let think = null;
+  for (let t = 0; t < 40 && think === null; t += .05) if (sceneModule.writerThinking(t)) think = t;
+  assert.ok(think !== null && sceneModule.writerThinking(0) === false, 'occasional, not constant');
+  const chin = [240, 324, 8, 6];
+  const p = paint({writer:working()}, think + .1), q = paint({writer:working()}, think + .6);
+  assert.ok(sceneModule.writerThinking(think + .6));
+  assert.deepEqual(within(p, region), within(q, region), 'screen holds while thinking');
+  assert.ok(has(p, chin, '#efc3a1'), 'hand rests on the chin');
+  assert.equal(has(a, chin, '#efc3a1'), false);
+});
+
+test('the scout monitor shows a file tree with a moving selection', () => {
+  const region = screenOf('scout');
+  const a = paint({scout:working()}, 0.2), b = paint({scout:working()}, 1.1);
+  assert.ok(colorsIn(a, region).has(AMBER), 'folders');
+  assert.notDeepEqual(within(a, region), within(b, region));
+  assert.equal(colorsIn(paint({scout:{working:false}}, 0.2), region).has(AMBER), false, 'idle screen stays dark');
+});
+
+test('verifier test lights cycle while running, then turn green or red with the result', () => {
+  const region = screenOf('verifier'), at = (extra, t = 1) => colorsIn(paint({verifier:working(extra)}, t), region);
+  const running = at({agentState:'delegated'});
+  assert.ok(running.has(AMBER) && !running.has(GREEN) && !running.has(RED));
+  assert.notDeepEqual(within(paint({verifier:working({agentState:'delegated'})}, 1), region),
+    within(paint({verifier:working({agentState:'delegated'})}, 1.2), region), 'lights chase');
+  const away = colorsIn(paint({verifier:working({away:true, agentState:'delegated'})}, 1), region);
+  assert.ok(away.has(AMBER), 'lights keep running while the verifier is at The Stacks');
+  const done = at({outcome:'completed'});
+  assert.ok(done.has(GREEN) && !done.has(RED));
+  for (const state of ['failed', 'aborted', 'blocked']) {
+    const bad = at({outcome:state});
+    assert.ok(bad.has(RED) && !bad.has(GREEN), state);
+  }
+  assert.ok(at({outcome:'partial'}).has(AMBER) && !at({outcome:'partial'}).has(RED) && !at({outcome:'partial'}).has(GREEN));
+  assert.ok(!at({}).has(GREEN) && !at({}).has(RED), 'nothing is judged without a result');
+  const idle = colorsIn(paint({verifier:{working:false}}, 1), region);
+  assert.ok(!idle.has(AMBER) && !idle.has(GREEN) && !idle.has(RED));
+});
+
+test('every role monitor tints green on completion and red on failure while the result is shown', () => {
+  for (const id of ['scout', 'writer']) {
+    const region = screenOf(id), at = outcome => colorsIn(paint({[id]:{away:true, outcome}}, 1), region);
+    assert.ok(at('completed').has(GREEN) && !at('completed').has(RED), id);
+    for (const state of ['failed', 'aborted', 'blocked']) assert.ok(at(state).has(RED) && !at(state).has(GREEN), `${id} ${state}`);
+    assert.ok(!at(undefined).has(RED) && !at(undefined).has(GREEN), id);
+  }
+});
+
+test('workers carry a bounded outcome and reaction for each delivered result', () => {
+  const workers = createWorkers();
+  workers.observe([{role:'writer', type:'arrival'}, {role:'verifier', type:'arrival'}]);
+  advanceWorkers(workers, 8, ['writer', 'verifier']);
+  const quiet = workers.step(0, ['writer', 'verifier']);
+  assert.equal(quiet.writer.outcome ?? null, null);
+  assert.equal(quiet.writer.reaction ?? null, null, 'nothing before a result');
+  workers.observe([{role:'writer', type:'result', state:'failed'}]);
+  let first = null, outcomeEnd = null, reactionStart = null, reactionEnd = null, elapsed = 0;
+  for (let i = 0; i < 60 * 40; i++) {
+    const p = workers.step(1/60, ['verifier']).writer; elapsed += 1/60;
+    if (p.outcome && !first) first = {outcome:p.outcome, at:elapsed};
+    if (first && !p.outcome && outcomeEnd === null) outcomeEnd = elapsed;
+    if (p.reaction && reactionStart === null) { reactionStart = elapsed; assert.equal(p.reaction.state, 'failed'); assert.equal(p.phase, 'pause'); }
+    if (reactionStart !== null && !p.reaction && reactionEnd === null) reactionEnd = elapsed;
+  }
+  assert.equal(first.outcome, 'failed');
+  assert.ok(outcomeEnd - first.at > 3 && outcomeEnd - first.at <= 6.5, `outcome lasts a few seconds (${outcomeEnd - first.at})`);
+  assert.ok(reactionEnd - reactionStart > 1.4 && reactionEnd - reactionStart <= 3.1, `reaction is short (${reactionEnd - reactionStart})`);
+  const after = workers.step(0, ['verifier']).writer;
+  assert.equal(after.outcome ?? null, null); assert.equal(after.reaction ?? null, null);
+});
+
+test('baselines and resets never replay an outcome or reaction', () => {
+  const workers = createWorkers();
+  workers.observe([{role:'writer', type:'arrival'}]);
+  advanceWorkers(workers, 8, ['writer']);
+  workers.observe([{role:'writer', type:'result', state:'completed'}]);
+  const poses = [];
+  advanceWorkers(workers, 7, [], p => poses.push(p.writer));
+  assert.ok(poses.some(p => p.reaction));
+  workers.reset();
+  const p = workers.step(0, []).writer;
+  assert.equal(p.outcome ?? null, null); assert.equal(p.reaction ?? null, null);
+});
+
+test('the delivery reaction paints a thumbs-up spark on success and a hand on the head with a red mark on failure', () => {
+  const pose = reaction => ({away:true, moving:false, position:[210, 108], phase:'pause', book:true, text:'x', reaction});
+  const head = [242, 102, 18, 26];
+  const idle = paint({writer:pose(null)}, 2), ok = paint({writer:pose({state:'completed', t:.3})}, 2);
+  const bad = paint({writer:pose({state:'failed', t:.3})}, 2), cloud = paint({writer:pose({state:'blocked', t:.3})}, 2);
+  assert.ok(colorsIn(ok, head).has(GREEN) && !colorsIn(ok, head).has(RED));
+  assert.ok(colorsIn(bad, head).has(RED) && !colorsIn(bad, head).has(GREEN));
+  assert.ok(colorsIn(cloud, head).has('#c9c4d5'), 'rain cloud for stalled work');
+  assert.equal(colorsIn(idle, head).has(GREEN) || colorsIn(idle, head).has(RED), false);
+  // The body breathes a pixel, so match the raised fist or the hand on the head by size and column.
+  const hand = (calls, x, w, h) => calls.some(c => c[4] === '#efc3a1' && c[0] === x && c[2] === w && c[3] === h);
+  assert.ok(hand(ok, 201, 7, 7) && !hand(bad, 201, 7, 7), 'thumbs-up fist');
+  assert.ok(hand(bad, 205, 10, 8) && !hand(ok, 205, 10, 8) && !hand(idle, 205, 10, 8), 'hand on the head');
+  assert.equal(hand(idle, 201, 7, 7), false);
+  const expired = paint({writer:pose({state:'completed', t:3.2})}, 2);
+  assert.equal(colorsIn(expired, head).has(GREEN), false, 'reaction window is bounded in the renderer too');
+  assert.notDeepEqual(paint({writer:pose({state:'completed', t:.3})}, 2.0), paint({writer:pose({state:'completed', t:.3})}, 2.3), 'spark twinkles');
+});
+
+test('unconfirmed workers get a subtle question mark beside their head', () => {
+  const seat = [250, 298, 12, 14];
+  assert.ok(colorsIn(paint({writer:working({agentState:'unknown'})}, 1), seat).has('#c9c4d5'));
+  assert.equal(colorsIn(paint({writer:working({agentState:'delegated'})}, 1), seat).has('#c9c4d5'), false);
+  const stacks = state => paint({scout:{away:true, moving:false, position:[540, 276], phase:'stacks', book:true, working:true, agentState:state}}, 1);
+  const spot = [572, 272, 12, 14];
+  assert.ok(colorsIn(stacks('unknown'), spot).has('#c9c4d5') && !colorsIn(stacks('delegated'), spot).has('#c9c4d5'));
+});
+
+test('scout and verifier flip pages at The Stacks while the scout also sweeps a lens', () => {
+  const stacks = (id, x, t, moving = false) => paint({[id]:{away:true, moving, position:[x, 276], phase:'stacks', book:true, working:true}}, t);
+  for (const [id, x] of [['scout', 540], ['verifier', 582]]) {
+    const book = [x + 24, 312, 16, 20];
+    assert.notDeepEqual(within(stacks(id, x, 0), book), within(stacks(id, x, .5), book), `${id} turns a page`);
+  }
+  const lens = [524, 308, 16, 20];
+  assert.ok(within(stacks('scout', 540, .2), lens).some(c => c[4] === '#49303e' && c[2] === 1), 'lens ring beside the scout');
+  assert.notDeepEqual(within(stacks('scout', 540, .2), lens), within(stacks('scout', 540, 1.4), lens), 'lens sweeps');
+  const still = paint({scout:{away:true, moving:false, position:[540, 276], phase:'stacks', book:true}}, undefined);
+  assert.equal(within(still, lens).some(c => c[4] === '#49303e' && c[2] === 1), false, 'no clock, no motion');
+});
+
+test('tired workers yawn on their feet at The Stacks', () => {
+  let t = 0; while (sceneModule.fatigueMoment(120, t, 'scout') !== 'yawn') t += .1;
+  const pose = seconds => ({away:true, moving:false, position:[540, 276], phase:'stacks', book:true, working:true, activeSeconds:seconds});
+  const mouth = [540 + 12, 276 + 23, 8, 6];
+  assert.ok(has(paint({scout:pose(120)}, t), mouth, '#392b35'));
+  assert.equal(has(paint({scout:pose(30)}, t), mouth, '#392b35'), false);
+});

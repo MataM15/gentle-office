@@ -80,6 +80,11 @@ function draw(now, delta) {
       : orchestrator ? active?.activity ?? 'Waiting'
       : active ? `${active.state === 'unknown' ? 'Unconfirmed' : 'Delegated task'}${matches.length > 1 ? ` · ${matches.length}` : ''}` : 'Waiting';
     agents[d.id] = {working, hand:working ? tick % 2 : 0, bob:working ? tick % 2 : 0, phase:tick};
+    // Worker animation reads the delegation state and how long the oldest task has run.
+    if (!orchestrator && active) {
+      agents[d.id].agentState = active.state;
+      agents[d.id].activeSeconds = Math.max(...matches.map(a => (Date.now() - a.started) / 1000));
+    }
     const pose = orchestrator ? (trip.away ? trip : {...trip, tool}) : workerPose;
     if (pose) Object.assign(agents[d.id], pose);
     if (orchestrator) agents[d.id].error = connected && !!status?.session && errorFeedback.active(now);

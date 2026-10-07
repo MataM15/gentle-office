@@ -41,6 +41,35 @@ export function breathLift(time, id) {
   return Math.sin((time / 3.4 + roleIndex(id) * .27) * Math.PI * 2) > 0 ? 1 : 0;
 }
 
+// Fatigue: a worker active for this long starts to look tired (mug, yawns, stretches).
+export const FATIGUE_AFTER_SECONDS = 90;
+const FATIGUE_PERIOD = 18;
+// Which tired gesture is playing: a ~2s yawn and a ~2.5s stretch every 18s, offset per role.
+export function fatigueMoment(activeSeconds, time, id) {
+  if (!Number.isFinite(activeSeconds) || !Number.isFinite(time) || activeSeconds < FATIGUE_AFTER_SECONDS) return null;
+  const phase = (time + roleIndex(id) * 5.3) % FATIGUE_PERIOD;
+  return phase >= 4 && phase < 6.2 ? 'yawn' : phase >= 11 && phase < 13.5 ? 'stretch' : null;
+}
+// The writer stops to think for 2s of every 13s; code stops scrolling meanwhile.
+const THINK_PERIOD = 13, THINK_START = 9.5, THINK_LENGTH = 2;
+export function writerThinking(time) {
+  if (!Number.isFinite(time)) return false;
+  const at = time % THINK_PERIOD;
+  return at >= THINK_START && at < THINK_START + THINK_LENGTH;
+}
+// Lines scrolled so far: continuous, because thinking time does not count.
+function codeScroll(time) {
+  const cycle = Math.floor(time / THINK_PERIOD), at = time % THINK_PERIOD;
+  const paused = cycle * THINK_LENGTH + Math.max(0, Math.min(THINK_LENGTH, at - THINK_START));
+  return Math.floor((time - paused) * 4);
+}
+// A delivered result tints the worker's monitor for this long, and the worker
+// reacts (cheer or slump) for REACTION_SECONDS from the moment it reaches the visitor.
+export const OUTCOME_SECONDS = 6;
+export const REACTION_SECONDS = 3;
+const failedLike = state => state === 'failed' || state === 'aborted' || state === 'blocked';
+const GREEN = '#8fbf94', RED = '#d85a5a', AMBER = '#efc68e';
+
 // Local browser time; no server timezone or tint over actors/UI.
 export function officeLighting(date = new Date()) {
   const hour = date.getHours();
@@ -257,12 +286,34 @@ export function createScene(ctx, avatar, {createLayer=defaultLayer(ctx)}={}) {
       box(x+21,y+42,6,6,light); box(x+23,y+40,1,3,'#c875a1');
     }
     // Sleeves with cuffs; the swing makes one hand lead and the other trail.
-    const aL=walking ? arm : 0, aR=walking && !carry ? -arm : 0, cuff='#f5eae2';
-    box(x-4,y+34,8,18+aL,color); box(x-4,y+34,2,18+aL,light); box(x-4,y+49+aL,8,3,cuff);
-    box(x+28,y+34,8,18+aR,color); box(x+34,y+34,2,18+aR,dark); box(x+28,y+49+aR,8,3,cuff);
-    if (walking) {
-      box(x-3,y+52+aL,6,4,'#efc3a1'); box(x-3,y+55+aL,6,1,'#d5a88e');
-      if (!carry) { box(x+29,y+52+aR,6,4,'#efc3a1'); box(x+29,y+55+aR,6,1,'#d5a88e'); }
+    const aL=walking ? arm : 0, aR=walking && !carry ? -arm : 0, cuff='#f5eae2', skin='#efc3a1';
+    const {raise=null, stretch=false, time=0} = life;
+    if (stretch) {
+      // Both arms reach up beside the head, swaying a little.
+      const sway = Math.round(Math.sin(time*5));
+      for (const [ax,edge] of [[x-8+sway,light],[x+32-sway,dark]]) {
+        box(ax<x ? x-4 : x+28,y+30,8,8,color); box(ax,y+8,8,26,color); box(ax+(ax<x?0:6),y+8,2,26,edge);
+        box(ax,y+8,8,3,cuff); box(ax,y+1,8,7,skin); box(ax,y+1,8,1,'#f5d9bc');
+      }
+    } else {
+      if (raise) {
+        // Left arm lifted: a thumbs-up fist, or a hand pressed to the head.
+        box(x-4,y+30,8,8,color);
+        if (raise==='thumb') {
+          box(x-9,y+20,7,12,color); box(x-9,y+20,2,12,light); box(x-9,y+19,7,2,cuff);
+          box(x-9,y+13,7,7,skin); box(x-8,y+8,2,6,skin); box(x-9,y+19,7,1,'#d5a88e');
+        } else {
+          box(x-8,y+14,6,18,color); box(x-8,y+14,2,18,light); box(x-8,y+13,6,2,cuff);
+          box(x-5,y+5,10,8,skin); box(x-5,y+12,10,1,'#d5a88e');
+        }
+      } else {
+        box(x-4,y+34,8,18+aL,color); box(x-4,y+34,2,18+aL,light); box(x-4,y+49+aL,8,3,cuff);
+      }
+      box(x+28,y+34,8,18+aR,color); box(x+34,y+34,2,18+aR,dark); box(x+28,y+49+aR,8,3,cuff);
+      if (walking) {
+        if (!raise) { box(x-3,y+52+aL,6,4,skin); box(x-3,y+55+aL,6,1,'#d5a88e'); }
+        if (!carry) { box(x+29,y+52+aR,6,4,skin); box(x+29,y+55+aR,6,1,'#d5a88e'); }
+      }
     }
     box(x+6,y-2,20,28,'#ad796b');
     box(x+2,y+6,28,16,'#d5a88e'); box(x+6,y+2,18,22,'#efc3a1');
@@ -309,6 +360,7 @@ export function createScene(ctx, avatar, {createLayer=defaultLayer(ctx)}={}) {
         box(x+16+facing*2,y+18,3,3,'#ad796b'); box(x+17+facing*2,y+17,1,2,'#f5d9bc');
       }
     }
+    if (life.yawn) { box(x+12,y+23,8,6,'#392b35'); box(x+14,y+26,4,2,'#c875a1'); box(x+12,y+23,8,1,'#8c6262'); }
   }
   function workstation(d, pose, life={}) {
     const {x,y}=d;
@@ -343,24 +395,32 @@ export function createScene(ctx, avatar, {createLayer=defaultLayer(ctx)}={}) {
     }
     const act=!pose?.away && !pose?.hidden && actions[pose?.tool?.kind];
     if (act) act(x,y,Math.floor(pose.tool.t*6),d.color);
-    else if (!pose?.away && !pose?.hidden) {
+    else if (!pose?.away && !pose?.hidden && !life.stretch) {
       box(x+34,y+54,8,10,d.color); box(x+66,y+54,8,10,d.color);
       box(x+36,y+62,10,4,'#765466'); box(x+62,y+62,10,4,'#765466');
       box(x+40,y+62-(pose?.hand??0),10,5,'#efc3a1');
-      box(x+58,y+62-(pose?.working?1-pose.hand:0),10,5,'#efc3a1');
+      if (life.think) {
+        // Chin in hand while the next line takes shape.
+        const [ax,ay]=[x+38,y+8+(pose?.bob??0)];
+        box(ax+30,ay+26,5,22,d.color); box(ax+22,ay+22,8,6,'#efc3a1'); box(ax+22,ay+27,8,1,'#d5a88e');
+      } else box(x+58,y+62-(pose?.working?1-pose.hand:0),10,5,'#efc3a1');
     }
     box(x+44,y+88,20,2,'#765466'); box(x+51,y+84,6,4,'#392b35');
     box(x+32,y+70,44,18,'#1A1218'); box(x+34,y+72,40,13,'#514353');
     box(x+35,y+72,38,2,'#765466');
-    if (pose?.working && !act) {
+    const roleScreen = d.id!=='orchestrator' && !pose?.hidden && (pose?.outcome || pose?.working);
+    if (pose?.working && !act && !roleScreen) {
       // Screen text scrolls with each typing beat.
       for (let line=0;line<3;line++)
         box(x+37+(line+key)%2*2,y+76+line*3,[18,24,12][(line+key)%3],1,line===2?'#9bd4cd':'#9691ac');
-    } else if (!pose?.away && !pose?.hidden) box(x+37,y+77,10,1,'#625066');
+    } else if (!pose?.away && !pose?.hidden && !roleScreen) box(x+37,y+77,10,1,'#625066');
     for (let vent=0;vent<4;vent++) box(x+45+vent*5,y+80,3,2,'#392b35');
+    if (roleScreen) roleMonitor(d, pose, life.time);
     if (pose?.working && !act) {
-      box(x+36,y+75,2,2,pose.hand?'#9bd4cd':'#45616a');
-      box(x+35,y+72,38,1,pose.hand?'#b894ac':'#765466');
+      if (d.id==='orchestrator') {
+        box(x+36,y+75,2,2,pose.hand?'#9bd4cd':'#45616a');
+        box(x+35,y+72,38,1,pose.hand?'#b894ac':'#765466');
+      }
       const py=y+35-(Number.isFinite(pose.phase) ? pose.phase%4 : key*2)*3;
       box(x+80,py,2,2,d.color); box(x+85,py-5,1,3,d.color);
     }
@@ -373,6 +433,81 @@ export function createScene(ctx, avatar, {createLayer=defaultLayer(ctx)}={}) {
       box(x+70,y+44,6,12,d.color); box(x+72,y+34,6,12,'#efc3a1');
       box(x+76,y+34,10,3,'#efc3a1');
     }
+    // Long shifts: a steaming mug waits on the desk.
+    if (pose?.working && Number.isFinite(pose.activeSeconds) && pose.activeSeconds >= FATIGUE_AFTER_SECONDS) {
+      box(x+22,y+53,7,7,'#f5eae2'); box(x+29,y+55,2,3,'#f5eae2'); box(x+23,y+53,5,1,'#76492e');
+      box(x+22,y+59,7,1,'#d6cbc0'); box(x+22,y+53,1,6,'#e3deeb');
+      const beat=Number.isFinite(life.time) ? Math.floor(life.time*3) : 0;
+      for (let i=0;i<2;i++) box(x+24+i*3+(beat+i)%2,y+49-((beat+i*2)%4)*2,1,3,'#e3deeb');
+    }
+    // Unconfirmed work gets a quiet question mark beside the head.
+    if (pose?.agentState==='unknown' && !pose.away && !pose.hidden)
+      questionMark(x+72,y+6,life.time);
+  }
+  // 5x7 question mark in 2px cells, bobbing a pixel when a clock runs.
+  const questionRows = ['.###.','#...#','....#','...#.','..#..','.....','..#..'];
+  function questionMark(x,y,time) {
+    const dy=Number.isFinite(time) && Math.floor(time*2)%2 ? 1 : 0;
+    questionRows.forEach((row,r) => { for (let c=0;c<5;c++) if (row[c]==='#') box(x+c*2,y+r*2+dy,2,2,'#c9c4d5'); });
+  }
+  const codeLines = [
+    [0,['k',7],['i',9],['p',3]], [2,['k',5],['i',6],['p',2],['s',8]], [2,['i',8],['p',2],['i',10]],
+    [4,['k',6],['i',7],['p',4]], [4,['i',12],['p',2],['s',6]], [2,['p',3],['k',4]],
+    [0,['k',6],['i',5],['p',2],['i',7]], [2,['i',6],['p',2],['s',10]], [4,['k',4],['i',9],['p',3]],
+    [4,['i',7],['p',2],['i',4],['p',3]], [2,['k',8],['s',7]], [0,['p',3]],
+  ];
+  const treeRows = [[0,'d',14],[1,'f',12],[1,'f',9],[1,'d',11],[2,'f',10],[2,'f',7],[0,'d',12],[1,'f',13],[1,'f',8]];
+  // Role-specific monitor: writer code, scout file tree, verifier test lights;
+  // a delivered result tints the screen while it is being shown.
+  function roleMonitor(d, pose, time) {
+    const {x,y}=d, outcome=pose.outcome, clock=Number.isFinite(time) ? time : null;
+    if (outcome) {
+      const bad=failedLike(outcome), good=outcome==='completed';
+      const flash=bad && clock!==null && Math.floor(clock*3)%2;
+      const accent=good ? GREEN : bad ? RED : AMBER;
+      box(x+34,y+72,40,13,good ? '#2d4a3f' : bad ? (flash ? '#6e2f38' : '#52262e') : '#4a4030');
+      box(x+35,y+72,38,2,accent);
+      if (d.id!=='verifier') {
+        if (good) for (const [cx,cy,w] of [[0,4,2],[2,6,2],[4,4,2],[6,2,2],[8,0,2]]) box(x+50+cx,y+76+cy,w,2,GREEN);
+        else if (bad) { box(x+53,y+75,3,6,RED); box(x+53,y+82,3,2,RED); }
+        else box(x+49,y+79,12,2,AMBER);
+      }
+    }
+    if (d.id==='writer' && !outcome) {
+      const first=clock===null ? pose.hand??0 : codeScroll(clock);
+      for (let row=0;row<3;row++) {
+        const [indent,...segs]=codeLines[(first+row)%codeLines.length];
+        let lx=x+37+indent;
+        for (const [kind,w] of segs) {
+          box(lx,y+75+row*3,w,2,{k:'#c875a1',i:'#9bd4cd',s:AMBER,p:'#9691ac'}[kind]); lx+=w+2;
+        }
+        if (row===2 && clock!==null && (writerThinking(clock) || Math.floor(clock*2)%2===0)) box(lx,y+75+row*3,2,2,'#f5eae2');
+      }
+    } else if (d.id==='scout' && !outcome) {
+      const sel=clock===null ? 0 : Math.floor(clock*1.5)%treeRows.length;
+      const top=Math.max(0,Math.min(treeRows.length-3,sel-1));
+      for (let row=0;row<3;row++) {
+        const [depth,kind,w]=treeRows[top+row], ry=y+75+row*3, rx=x+37+depth*3;
+        if (top+row===sel) box(x+35,ry-1,38,4,'#625066');
+        if (depth) box(x+37+(depth-1)*3,ry-1,1,4,'#765466');
+        box(rx,ry,kind==='d' ? 4 : 3,2,kind==='d' ? AMBER : '#f5eae2');
+        box(rx+6,ry,w,1,top+row===sel ? '#f5eae2' : '#9691ac');
+      }
+    } else if (d.id==='verifier') testLights(d, pose, clock);
+  }
+  // Six test lamps and a progress bar: chasing amber while running, steady and
+  // green or red once the result is known.
+  function testLights({x,y}, pose, clock) {
+    const outcome=pose.outcome, bad=failedLike(outcome), unknown=pose.agentState==='unknown';
+    const lit=clock===null ? 0 : Math.floor(clock*5)%6;
+    for (let i=0;i<6;i++) {
+      const color=outcome==='completed' ? GREEN : bad ? (clock!==null && (Math.floor(clock*3)+i)%2 ? '#9a4247' : RED)
+        : outcome ? AMBER : unknown ? '#a98a5a' : i===lit ? AMBER : i===(lit+5)%6 ? '#a98a5a' : '#625066';
+      box(x+37+i*6,y+76,4,3,color); box(x+37+i*6,y+76,4,1,shade(color,.2));
+    }
+    box(x+37,y+81,34,2,'#392b35');
+    const fill=outcome==='completed' ? 34 : bad ? 18 : outcome ? 24 : unknown ? 12 : Math.round(((clock??0)*.12%1)*34);
+    box(x+37,y+81,fill,2,outcome==='completed' ? GREEN : bad ? RED : AMBER);
   }
   function furnishings() {
     shelf(300,72,116,true); shelf(460,72,116,true); shelf(492,266,100,false);
@@ -638,8 +773,12 @@ export function createScene(ctx, avatar, {createLayer=defaultLayer(ctx)}={}) {
     paintRoom(!state, state?.lighting);
     const time = state?.time;
     // Seated workers breathe while idle; typing already moves them.
-    const seated = d => { const pose=state?.agents[d.id]; return {blink:blinkClosed(time,d.id),
-      lift:pose?.working ? 0 : breathLift(time,d.id)}; };
+    const seated = d => {
+      const pose=state?.agents[d.id], tired=pose?.away ? null : fatigueMoment(pose?.activeSeconds,time,d.id);
+      return {blink:blinkClosed(time,d.id) || tired==='yawn', lift:pose?.working ? 0 : breathLift(time,d.id),
+        time, yawn:tired==='yawn', stretch:tired==='stretch',
+        think:d.id==='writer' && !!pose?.working && !pose.away && writerThinking(time)};
+    };
     const layers = desks.map(d=>({depth:d.y+106, draw:()=>workstation(d,actors?(state?.agents[d.id]):{hidden:true},seated(d))}));
     if (state) {
       const poses = Object.values(state.agents ?? {});
@@ -668,8 +807,13 @@ export function createScene(ctx, avatar, {createLayer=defaultLayer(ctx)}={}) {
         const pose = state.agents[id];
         if (pose?.away) {
           const [x,y] = pose.position.map(Math.round);
+          // At The Stacks a worker reads on its feet; long shifts earn a yawn.
+          const reading = pose.phase==='stacks' && !pose.moving;
+          const yawn = reading && fatigueMoment(pose.activeSeconds,time,id)==='yawn';
           layers.push({depth:y+68, draw:()=>standing(x,y,Math.round(pose.stride),pose.book,id,pose.drinking,
-            {blink:blinkClosed(time,id), facing:pose.facing??0, lift:!pose.moving && ['shelf','stacks','rest','water','pause'].includes(pose.phase) ? breathLift(time,id) : 0})});
+            {blink:blinkClosed(time,id) || yawn, facing:pose.facing??0, time, yawn, reading,
+              question:pose.agentState==='unknown' && reading, reaction:pose.reaction,
+              lift:!yawn && !pose.moving && ['shelf','stacks','rest','water','pause'].includes(pose.phase) ? breathLift(time,id) : 0})});
         }
       }
       layers.sort((a,b)=>a.depth-b.depth).forEach(l=>l.draw());
@@ -683,8 +827,11 @@ export function createScene(ctx, avatar, {createLayer=defaultLayer(ctx)}={}) {
     const color=desks.find(d=>d.id===id).color, carry=book||drinking;
     // Contact shadow keeps the walker grounded on the tiles.
     box(x+2,y+67,28,3,'#5f4e55'); box(x+5,y+70,22,1,'#5f4e55');
+    // A fresh reaction raises the left arm: thumbs-up on success, hand on head on failure.
+    const reaction = life.reaction && life.reaction.t < REACTION_SECONDS ? life.reaction : null;
+    const raise = reaction ? (reaction.state==='completed' ? 'thumb' : failedLike(reaction.state) ? 'head' : null) : null;
     // Breathing sinks the torso a pixel over the planted legs.
-    actor(x,y+(life.lift??0),color,id,false,box,Math.round(stride*1.5),carry,life);
+    actor(x,y+(life.lift??0),color,id,false,box,Math.round(stride*1.5),carry,{...life,raise});
     const pants={orchestrator:'#49303e',scout:'#3b4f57',writer:'#5a4450',verifier:'#514a6a'}[id] ?? '#49303e';
     // The planted leg is longer; the lifted one tucks its cuff and shoe up.
     box(x+6,y+56,8,10-stride,pants); box(x+20,y+56,8,10+stride,pants);
@@ -707,6 +854,39 @@ export function createScene(ctx, avatar, {createLayer=defaultLayer(ctx)}={}) {
       box(x+26,y+38+dy,2,16,'#cda28a'); box(x+28,y+52+dy,10,2,'#f5eae2');
       box(x+36,y+38+dy,2,14,'#d9a96f'); box(x+30,y+46+dy,4,1,'#cda28a');
       box(x+24,y+48+dy,8,4,'#efc3a1'); box(x+24,y+51+dy,8,1,'#d5a88e');
+      if (life.reading && Number.isFinite(life.time)) {
+        // A page lifts and turns every ~1.6s, staggered per role.
+        const turn=Math.floor(((life.time+roleIndex(id)*.5)%1.6)/.4);
+        if (turn===1) { box(x+32,y+40+dy,5,12,'#fff4d6'); box(x+31,y+40+dy,1,12,'#cda28a'); }
+        else if (turn===2) { box(x+31,y+39+dy,2,13,'#fff4d6'); box(x+29,y+41+dy,6,3,'#efc68e'); }
+        else if (turn===3) { box(x+28,y+40+dy,3,12,'#fff4d6'); box(x+31,y+40+dy,1,12,'#cda28a'); }
+      }
+    }
+    if (life.reading && id==='scout' && Number.isFinite(life.time)) {
+      // The scout sweeps a magnifying glass in the free hand while searching.
+      const cx=x-9+Math.round(Math.sin(life.time*2.4)*2), cy=y+42;
+      box(cx-4,cy-3,9,7,'#d6efec'); box(cx-3,cy-4,7,1,'#49303e'); box(cx-3,cy+4,7,1,'#49303e');
+      box(cx-5,cy-3,1,7,'#49303e'); box(cx+5,cy-3,1,7,'#49303e');
+      for (const [px,py] of [[-4,-4],[4,-4],[-4,4],[4,4]]) box(cx+px,cy+py,1,1,'#49303e');
+      if (Math.floor(life.time*3)%2) box(cx-3,cy-2,2,1,'#f5eae2');
+      box(cx+4,cy+5,2,2,'#8c6262'); box(cx+5,cy+7,2,2,'#8c6262'); box(cx+6,cy+9,2,2,'#8c6262');
+    }
+    if (reaction) reactionIcon(x+34>606 ? x-10 : x+34, y, reaction, life.time);
+    else if (life.question) questionMark(x+34>606 ? x-10 : x+34, y-2, life.time);
+  }
+  // Small status glyph beside the head: green check, red mark or rain cloud.
+  function reactionIcon(x,y,{state,t},time) {
+    const iy=y-Math.min(2,Math.floor(t*4)), beat=Number.isFinite(time) ? Math.floor(time*6)%2 : 0;
+    if (state==='completed') {
+      for (const [cx,cy] of [[0,4],[2,6],[4,4],[6,2],[8,0]]) { box(x+cx,iy+cy,2,2,GREEN); box(x+cx,iy+cy+2,2,1,'#6f9a7c'); }
+      box(x+12,iy+(beat?1:3),1,3,'#f5eae2'); box(x+11,iy+(beat?2:4),3,1,'#f5eae2');
+    } else if (state==='failed') {
+      box(x+2,iy-1+beat,5,9,'#392b35'); box(x+3,iy+beat,3,7,RED); box(x+3,iy+8+beat,3,2,RED);
+      box(x+2,iy+10+beat,5,1,'#392b35');
+    } else if (failedLike(state)) {
+      box(x,iy+2,12,4,'#c9c4d5'); box(x+2,iy,8,3,'#c9c4d5'); box(x+3,iy,3,1,'#e3deeb');
+      const fall=Number.isFinite(time) ? Math.floor(time*6) : 0;
+      for (let i=0;i<3;i++) box(x+2+i*4,iy+7+(fall+i*2)%4*2,1,2,'#9bd4cd');
     }
   }
   return {render,room,actor,standing};
@@ -901,7 +1081,7 @@ export function stepJourney(previous, event, delta) {
 // authorize arrivals/results. Routes are never replaced with an entrance spawn.
 export function createWorkers() {
   const workers = Object.fromEntries(Object.entries(restPositions).map(([role, position]) =>
-    [role, {position:[...position], phase:'rest', queue:[], motion:null, result:null}]));
+    [role, {position:[...position], phase:'rest', queue:[], motion:null, result:null, resultT:0, reaction:null}]));
   let visitor = null;
   const start = (w, route, phase) => {
     w.motion = {route, walker:makeWalker(route), elapsed:0, from:w.phase, to:phase};
@@ -909,7 +1089,7 @@ export function createWorkers() {
   const reset = () => {
     visitor = null;
     for (const w of Object.values(workers)) {
-      w.queue = []; w.result = null;
+      w.queue = []; w.result = null; w.reaction = null;
       // Retrace only the already travelled prefix, not a shortcut through walls.
       if (w.motion) {
         const m = w.motion;
@@ -964,7 +1144,7 @@ export function createWorkers() {
           while (w.queue[0]?.type === 'arrival') w.queue.shift();
           if (w.queue[0]?.type === 'result') {
             if (!visitor) {
-              visitor = role; w.result = w.queue.shift();
+              visitor = role; w.result = w.queue.shift(); w.resultT = 0;
               start(w, delivery, 'pause');
             }
           } else if (active && (role === 'scout' || role === 'verifier')) {
@@ -978,13 +1158,20 @@ export function createWorkers() {
         w.position = m.walker.position(m.elapsed);
         if (m.elapsed >= m.walker.travelSeconds) {
           w.phase = m.to; w.motion = null;
-          if (w.phase === 'pause') w.pause = 1.5;
+          if (w.phase === 'pause') {
+            w.pause = 1.5;
+            if (['completed','failed','aborted','blocked'].includes(w.result?.state)) w.reaction = {state:w.result.state, t:0};
+          }
           if (w.phase === 'water') w.pause = 2.0;
           if (w.phase === 'rest' && visitor === role) visitor = null;
         }
       }
+      if (w.result) w.resultT += dt;
+      if (w.reaction) { w.reaction.t += dt; if (w.reaction.t >= REACTION_SECONDS) w.reaction = null; }
       const away = !!w.motion || w.phase !== 'seat';
       poses[role] = {position:[...w.position], away, moving:!!w.motion, phase:w.phase,
+        outcome:w.result && w.resultT < OUTCOME_SECONDS ? w.result.state : null,
+        reaction:w.reaction ? {...w.reaction} : null,
         stride:w.motion ? Math.sin(w.motion.elapsed*16)*2 : 0,
         facing:w.motion ? w.motion.walker.heading(w.motion.elapsed) : 0,
         drinking:w.phase === 'water' && !w.motion && w.pause > 1e-9,
