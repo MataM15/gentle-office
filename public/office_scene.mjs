@@ -737,11 +737,13 @@ export const doors = [
   {id:'workshop-stacks', x:456, y:300, w:12, h:44, swing:'right'},
   {id:'exit', x:276, y:408, w:56, h:12, swing:'up'},
 ];
-// A door is open while a walker's feet are in or just beside its gap.
+// A door is open while a walker's feet are in or just beside its gap. The
+// margin across a horizontal wall stays under the 12px lane offset, so walkers
+// passing along the Workshop lane leave the door closed.
 export function doorOpen(d, pose) {
   if (!pose?.away || !pose.position) return false;
   const fx = pose.position[0] + 16, fy = pose.position[1] + 67;
-  const [mx, my] = d.swing==='right' ? [30, 8] : [8, 16];
+  const [mx, my] = d.swing==='right' ? [30, 8] : [8, 10];
   return fx >= d.x-mx && fx <= d.x+d.w+mx && fy >= d.y-my && fy <= d.y+d.h+my;
 }
 export const feetBox = ([x,y]) => [x+8,y+64,16,6];

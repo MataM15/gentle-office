@@ -189,8 +189,40 @@ test('doors open only while a walker passes them', () => {
   assert.equal(doorOpen(middle, {away:true, position:[426,80]}), false);
   assert.equal(doorOpen(middle, memoryWalk(null, true, 0.3)), false);
   assert.equal(doorOpen(at('workshop'), {away:true, position:[186,180]}), true);
-  assert.equal(doorOpen(at('stacks'), {away:true, position:[518,190]}), true);
+  assert.equal(doorOpen(at('stacks'), {away:true, position:[518,182]}), true);
   assert.equal(doorOpen(at('exit'), {away:true, position:[186,200]}), false);
+});
+
+// Feet path crosses the door's centre line inside its gap span.
+function crossesDoor(d, route) {
+  for (let i = 1; i < route.length; i++) {
+    const [ax, ay] = [route[i-1][0] + 16, route[i-1][1] + 67], [bx, by] = [route[i][0] + 16, route[i][1] + 67];
+    if (d.swing === 'right') {
+      const lx = d.x + d.w / 2;
+      if ((ax - lx) * (bx - lx) < 0) { const y = ay + (by - ay) * (lx - ax) / (bx - ax); if (y >= d.y && y <= d.y + d.h) return true; }
+    } else {
+      const ly = d.y + d.h / 2;
+      if ((ay - ly) * (by - ly) < 0) { const x = ax + (bx - ax) * (ly - ay) / (by - ay); if (x >= d.x && x <= d.x + d.w) return true; }
+    }
+  }
+  return false;
+}
+
+test('walking past a door without crossing it keeps it closed', () => {
+  const routes = {memory:memoryRoute, stacks:sceneModule.stacksRoute, verifierStacks:verifierStacksRoute,
+    review:sceneModule.reviewRoute, water:sceneModule.toWaterRoute};
+  for (const role of ['writer', 'verifier', 'scout']) {
+    routes[`${role}-arrival`] = lifecycleRoute(role, 'arrival');
+    routes[`${role}-result`] = lifecycleRoute(role, 'result');
+    routes[`${role}-water-rest`] = sceneModule.waterToRestRoute(role);
+  }
+  for (const [name, route] of Object.entries(routes)) {
+    const walker = makeWalker(route), opened = new Set();
+    for (let t = 0; t <= walker.travelSeconds; t += 1 / 120)
+      for (const door of doors) if (doorOpen(door, {away:true, position:walker.position(t)})) opened.add(door.id);
+    const crossed = doors.filter(d => crossesDoor(d, route)).map(d => d.id).sort();
+    assert.deepEqual([...opened].sort(), crossed, `${name} opens exactly the doors it crosses`);
+  }
 });
 
 test('scout walks to The Stacks and back without crossing walls', () => {
